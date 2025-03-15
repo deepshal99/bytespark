@@ -54,7 +54,9 @@ serve(async (req) => {
       },
       body: JSON.stringify({ 
         manual: true,
-        email
+        email,
+        test: action === "test",
+        targetEmail: email
       })
     });
     

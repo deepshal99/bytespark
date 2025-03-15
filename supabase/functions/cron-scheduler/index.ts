@@ -20,6 +20,19 @@ serve(async (req) => {
   try {
     console.log("Running daily scheduled tasks for ByteSize newsletter");
     
+    // Parse request body for test mode and targetEmail
+    let isTest = false;
+    let targetEmail = null;
+    try {
+      const body = await req.json();
+      isTest = body.test === true;
+      targetEmail = body.targetEmail || null;
+    } catch (e) {
+      // If there's no body, or it's not valid JSON, just proceed normally
+    }
+    
+    const testMode = isTest ? "?test=true" : "";
+    
     // Step 1: Fetch tweets
     console.log("Step 1: Fetching tweets...");
     const fetchResponse = await fetch(`${SUPABASE_URL}/functions/v1/fetch-tweets`, {
@@ -28,7 +41,10 @@ serve(async (req) => {
         "Content-Type": "application/json",
         "Authorization": `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`
       },
-      body: JSON.stringify({})
+      body: JSON.stringify({
+        test: isTest,
+        email: targetEmail
+      })
     });
     
     if (!fetchResponse.ok) {
@@ -48,7 +64,10 @@ serve(async (req) => {
         "Content-Type": "application/json",
         "Authorization": `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`
       },
-      body: JSON.stringify({})
+      body: JSON.stringify({
+        test: isTest,
+        email: targetEmail
+      })
     });
     
     if (!summarizeResponse.ok) {
@@ -68,7 +87,10 @@ serve(async (req) => {
         "Content-Type": "application/json",
         "Authorization": `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`
       },
-      body: JSON.stringify({})
+      body: JSON.stringify({
+        test: isTest,
+        email: targetEmail
+      })
     });
     
     if (!newsletterResponse.ok) {

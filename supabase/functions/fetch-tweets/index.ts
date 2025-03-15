@@ -12,6 +12,68 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || "";
 const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") || "";
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
 
+// Base URL for Nitter instance
+const NITTER_BASE_URL = "https://nitter.net";
+
+async function fetchTweetsFromNitter(twitterHandle: string, maxTweets = 10) {
+  try {
+    console.log(`Fetching tweets for ${twitterHandle} from Nitter`);
+    const response = await fetch(`${NITTER_BASE_URL}/${twitterHandle}`);
+    
+    if (!response.ok) {
+      throw new Error(`Failed to fetch tweets: ${response.status} ${response.statusText}`);
+    }
+    
+    const htmlContent = await response.text();
+    const parser = new DOMParser();
+    const document = parser.parseFromString(htmlContent, "text/html");
+    
+    if (!document) {
+      throw new Error("Failed to parse HTML content");
+    }
+    
+    const tweetElements = document.querySelectorAll(".timeline-item:not(.thread)");
+    const tweets = [];
+    
+    for (let i = 0; i < Math.min(tweetElements.length, maxTweets); i++) {
+      const tweetElement = tweetElements[i];
+      
+      // Check if it's a retweet or a reply (we can skip these if needed)
+      const isRetweet = tweetElement.querySelector(".retweet-header") !== null;
+      const isReply = tweetElement.querySelector(".replying-to") !== null;
+      
+      // Skip retweets and replies if necessary
+      if (isRetweet || isReply) {
+        continue;
+      }
+      
+      const contentElement = tweetElement.querySelector(".tweet-content");
+      const dateElement = tweetElement.querySelector(".tweet-date a");
+      const linkElement = tweetElement.querySelector(".tweet-link");
+      
+      if (contentElement && dateElement && linkElement) {
+        const content = contentElement.textContent.trim();
+        const dateStr = dateElement.getAttribute("title") || "";
+        const tweetId = linkElement.getAttribute("href")?.split("/").pop() || "";
+        const tweetUrl = `https://twitter.com${linkElement.getAttribute("href")}`;
+        
+        tweets.push({
+          id: tweetId,
+          content,
+          created_at: new Date(dateStr).toISOString(),
+          url: tweetUrl,
+          twitter_handle: twitterHandle,
+        });
+      }
+    }
+    
+    return tweets;
+  } catch (error) {
+    console.error(`Error fetching tweets for ${twitterHandle}:`, error);
+    throw error;
+  }
+}
+
 serve(async (req) => {
   // Handle CORS preflight requests
   if (req.method === "OPTIONS") {
@@ -19,143 +81,88 @@ serve(async (req) => {
   }
 
   try {
-    // Initialize Supabase client
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-    
-    // Get all active subscribers
-    const { data: subscribers, error: subscribersError } = await supabase
+
+    // Get all active subscriptions from the database
+    const { data: subscriptions, error: subscriptionError } = await supabase
       .from("newsletter_subscriptions")
-      .select("*");
-
-    if (subscribersError) {
-      console.error("Error fetching subscribers:", subscribersError);
-      throw new Error("Failed to fetch subscribers");
+      .select("*")
+      .eq("active", true);
+    
+    if (subscriptionError) {
+      throw new Error(`Failed to fetch subscriptions: ${subscriptionError.message}`);
     }
-
-    console.log(`Processing ${subscribers.length} subscribers`);
     
-    const results = [];
+    console.log(`Found ${subscriptions.length} active subscriptions`);
     
-    // Process each subscriber
-    for (const subscriber of subscribers) {
+    // Group subscriptions by Twitter handle to avoid duplicate fetches
+    const twitterHandleSet = new Set<string>();
+    subscriptions.forEach(sub => {
+      if (sub.twitter_source) {
+        // Remove @ symbol if present and trim
+        const handle = sub.twitter_source.replace('@', '').trim();
+        twitterHandleSet.add(handle);
+      }
+    });
+    
+    const twitterHandles = Array.from(twitterHandleSet);
+    console.log(`Unique Twitter handles to fetch: ${twitterHandles.length}`);
+    
+    const fetchResults = [];
+    
+    // Fetch tweets for each unique Twitter handle
+    for (const handle of twitterHandles) {
       try {
-        const twitterSource = subscriber.twitter_source;
-        let username = twitterSource;
+        console.log(`Processing Twitter handle: ${handle}`);
+        const tweets = await fetchTweetsFromNitter(handle);
         
-        // Extract username from URL if needed
-        if (twitterSource.includes("twitter.com/") || twitterSource.includes("x.com/")) {
-          const urlParts = twitterSource.split("/");
-          username = urlParts[urlParts.length - 1].split("?")[0];
-        }
-        
-        console.log(`Fetching tweets for username: ${username}`);
-        
-        // Fetch tweets using Nitter
-        const nitterUrl = `https://nitter.net/${username}`;
-        const response = await fetch(nitterUrl);
-        const html = await response.text();
-        
-        // Parse HTML
-        const document = new DOMParser().parseFromString(html, "text/html");
-        if (!document) {
-          throw new Error("Failed to parse HTML");
-        }
-        
-        // Extract tweets
-        const tweetElements = document.querySelectorAll(".timeline-item");
-        const tweets = [];
-        
-        // Only process up to 5 recent tweets to avoid overloading
-        const maxTweets = Math.min(5, tweetElements.length);
-        
-        for (let i = 0; i < maxTweets; i++) {
-          const tweetElement = tweetElements[i];
-          
-          // Skip if not a tweet element
-          if (!tweetElement) continue;
-          
-          // Check if it's a retweet or reply (we can skip these)
-          const isRetweet = tweetElement.querySelector(".retweet-header");
-          const isReply = tweetElement.querySelector(".replying-to");
-          if (isRetweet || isReply) continue;
-          
-          // Extract tweet content
-          const contentElement = tweetElement.querySelector(".tweet-content");
-          if (!contentElement) continue;
-          
-          const tweetContent = contentElement.textContent.trim();
-          
-          // Extract tweet date
-          const timeElement = tweetElement.querySelector(".tweet-date a");
-          const tweetDate = timeElement ? timeElement.getAttribute("title") : "";
-          
-          // Extract tweet ID
-          const tweetUrl = timeElement ? timeElement.getAttribute("href") : "";
-          const tweetId = tweetUrl ? tweetUrl.split("/").pop() : "";
-          
-          tweets.push({
-            id: tweetId,
-            username,
-            content: tweetContent,
-            date: tweetDate,
-            source_url: `https://twitter.com/${username}/status/${tweetId}`
+        if (tweets.length > 0) {
+          // Store tweets in the database
+          const { data: storedTweets, error: storageError } = await supabase
+            .from("tweets")
+            .upsert(
+              tweets.map(tweet => ({
+                tweet_id: tweet.id,
+                content: tweet.content,
+                created_at: tweet.created_at,
+                url: tweet.url,
+                twitter_handle: tweet.twitter_handle,
+                fetched_at: new Date().toISOString(),
+              })),
+              { onConflict: "tweet_id" }
+            );
+            
+          if (storageError) {
+            console.error(`Error storing tweets for ${handle}:`, storageError);
+            fetchResults.push({
+              handle,
+              success: false,
+              error: storageError.message,
+              tweets_count: 0
+            });
+          } else {
+            console.log(`Successfully stored ${tweets.length} tweets for ${handle}`);
+            fetchResults.push({
+              handle,
+              success: true,
+              tweets_count: tweets.length
+            });
+          }
+        } else {
+          console.log(`No tweets found for ${handle}`);
+          fetchResults.push({
+            handle,
+            success: true,
+            tweets_count: 0
           });
         }
-        
-        // Check if we found any tweets
-        if (tweets.length === 0) {
-          console.log(`No new tweets found for ${username}`);
-          continue;
-        }
-        
-        console.log(`Found ${tweets.length} tweets for ${username}`);
-        
-        // Store tweets in database
-        for (const tweet of tweets) {
-          // Check if tweet already exists in database
-          const { data: existingTweet } = await supabase
-            .from("tweets")
-            .select("id")
-            .eq("tweet_id", tweet.id)
-            .single();
-            
-          if (existingTweet) {
-            console.log(`Tweet ${tweet.id} already exists, skipping`);
-            continue;
-          }
-          
-          // Insert new tweet
-          const { error: insertError } = await supabase
-            .from("tweets")
-            .insert({
-              tweet_id: tweet.id,
-              username: tweet.username,
-              content: tweet.content,
-              tweet_date: tweet.date,
-              source_url: tweet.source_url,
-              subscriber_id: subscriber.id,
-              processed: false
-            });
-            
-          if (insertError) {
-            console.error(`Error storing tweet ${tweet.id}:`, insertError);
-          } else {
-            console.log(`Successfully stored tweet ${tweet.id}`);
-          }
-        }
-        
-        results.push({
-          username,
-          tweets_fetched: tweets.length,
-          success: true
-        });
-        
       } catch (error) {
-        console.error(`Error processing subscriber ${subscriber.email}:`, error);
-        results.push({
-          username: subscriber.twitter_source,
+        console.error(`Error processing ${handle}:`, error);
+        fetchResults.push({
+          handle,
+          success: false,
           error: error.message,
-          success: false
+          tweets_count: 0
         });
       }
     }
@@ -163,8 +170,8 @@ serve(async (req) => {
     return new Response(
       JSON.stringify({ 
         success: true, 
-        message: `Processed ${subscribers.length} subscribers`, 
-        results 
+        message: "Tweets fetched and stored successfully",
+        results: fetchResults
       }),
       {
         status: 200,
