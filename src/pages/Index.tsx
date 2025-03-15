@@ -4,10 +4,6 @@ import { supabase } from '../integrations/supabase/client';
 import { toast } from 'react-toastify';
 import Header from '../components/Header';
 import NewsletterForm from '../components/NewsletterForm';
-import Features from '../components/Features';
-import Testimonials from '../components/Testimonials';
-import FAQ from '../components/FAQ';
-import Footer from '../components/Footer';
 
 const Index = () => {
   const [loading, setLoading] = useState(false);
@@ -101,20 +97,10 @@ const Index = () => {
             )}
           </div>
         </section>
-        
-        {/* Features Section */}
-        <Features />
-        
-        {/* Testimonials */}
-        <Testimonials />
-        
-        {/* FAQ Section */}
-        <FAQ />
       </main>
-      
-      <Footer />
     </div>
   );
 };
 
 export default Index;
+

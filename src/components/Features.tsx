@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { motion } from 'framer-motion';
-import { Zap, Calendar, RefreshCw, Check } from 'lucide-react';
+import { Zap, Calendar, RefreshCw } from 'lucide-react';
 
 const features = [{
   icon: <Zap className="h-6 w-6 text-bytesize-blue" />,
