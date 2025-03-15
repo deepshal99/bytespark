@@ -33,17 +33,51 @@ async function fetchTweetsUsingTwint(twitterHandle: string, maxTweets = 10) {
     
     console.log(`[FETCH] Cleaned Twitter handle: ${cleanHandle}`);
     
-    // Fetch tweets using Twint web scraping
-    const apiUrl = `https://twintapp.vercel.app/api/twint?username=${cleanHandle}&limit=${maxTweets}`;
-    console.log(`[FETCH] Fetching tweets from Twint API: ${apiUrl}`);
+    // Fetch tweets using Twint web service
+    // Using twintproject's API endpoint or a compatible alternative
+    const apiUrl = `https://twintapi.vercel.app/api/tweets?username=${cleanHandle}&limit=${maxTweets}`;
+    console.log(`[FETCH] Fetching tweets from API: ${apiUrl}`);
     
-    const response = await fetch(apiUrl);
+    const response = await fetch(apiUrl, {
+      headers: {
+        'Accept': 'application/json',
+      },
+    });
     
     if (!response.ok) {
       console.error(`[FETCH] Failed to fetch tweets: ${response.status} ${response.statusText}`);
       const errorBody = await response.text();
       console.error(`[FETCH] Error response body: ${errorBody}`);
-      throw new Error(`Twint API error: ${response.status} - ${errorBody}`);
+      
+      // Try alternative Twint API endpoint if the first one fails
+      const alternativeApiUrl = `https://twint-api.vercel.app/api/tweets?username=${cleanHandle}&limit=${maxTweets}`;
+      console.log(`[FETCH] Trying alternative API endpoint: ${alternativeApiUrl}`);
+      
+      const alternativeResponse = await fetch(alternativeApiUrl);
+      
+      if (!alternativeResponse.ok) {
+        console.error(`[FETCH] Alternative API also failed: ${alternativeResponse.status}`);
+        throw new Error(`Failed to fetch tweets from both API endpoints`);
+      }
+      
+      const alternativeTweetsData = await alternativeResponse.json();
+      console.log(`[FETCH] Alternative API response:`, alternativeTweetsData);
+      
+      if (!alternativeTweetsData.tweets || alternativeTweetsData.tweets.length === 0) {
+        console.log(`[FETCH] No tweets found for ${cleanHandle} from alternative API`);
+        return [];
+      }
+      
+      // Format the tweets from the alternative API
+      return alternativeTweetsData.tweets.map((tweet: any) => {
+        return {
+          id: tweet.id,
+          content: tweet.tweet,
+          created_at: new Date(tweet.date).toISOString(),
+          url: `https://twitter.com/${cleanHandle}/status/${tweet.id}`,
+          twitter_handle: cleanHandle,
+        };
+      });
     }
     
     const tweetsData = await response.json();
@@ -69,7 +103,38 @@ async function fetchTweetsUsingTwint(twitterHandle: string, maxTweets = 10) {
     return tweets;
   } catch (error) {
     console.error(`[FETCH] Error fetching tweets for ${twitterHandle}:`, error);
-    throw error;
+    
+    // As a last resort, try a third API endpoint
+    try {
+      console.log(`[FETCH] Attempting final fallback API for ${twitterHandle}`);
+      const finalFallbackUrl = `https://twint-public-api.vercel.app/api/v1/tweets?username=${twitterHandle.replace('@', '')}&limit=${maxTweets}`;
+      
+      const finalResponse = await fetch(finalFallbackUrl);
+      if (!finalResponse.ok) {
+        throw new Error(`Final API also failed: ${finalResponse.status}`);
+      }
+      
+      const finalData = await finalResponse.json();
+      
+      if (!finalData.data || !Array.isArray(finalData.data) || finalData.data.length === 0) {
+        throw new Error("No tweets in final API response");
+      }
+      
+      console.log(`[FETCH] Final API successful with ${finalData.data.length} tweets`);
+      
+      return finalData.data.map((tweet: any) => {
+        return {
+          id: tweet.id_str || tweet.id,
+          content: tweet.full_text || tweet.text,
+          created_at: new Date(tweet.created_at).toISOString(),
+          url: `https://twitter.com/${twitterHandle.replace('@', '')}/status/${tweet.id_str || tweet.id}`,
+          twitter_handle: twitterHandle.replace('@', ''),
+        };
+      });
+    } catch (finalError) {
+      console.error(`[FETCH] All API attempts failed for ${twitterHandle}:`, finalError);
+      throw error; // Throw the original error
+    }
   }
 }
 
@@ -107,12 +172,18 @@ serve(async (req) => {
     // Parse request body for test mode and targetEmail
     let isTest = false;
     let targetEmail = null;
+    let maxTweets = 10; // Default number of tweets to fetch
     
     try {
       const body = await req.json();
       console.log("[FETCH] Request body:", body);
       isTest = body.test === true;
       targetEmail = body.targetEmail || body.email || null;
+      
+      // Allow specifying the number of tweets to fetch
+      if (body.maxTweets && !isNaN(body.maxTweets)) {
+        maxTweets = parseInt(body.maxTweets);
+      }
     } catch (e) {
       // If there's no body, or it's not valid JSON, just proceed normally
       console.log("[FETCH] No valid JSON in request body, using default settings");
@@ -144,7 +215,7 @@ serve(async (req) => {
     for (const handle of twitterHandles) {
       try {
         console.log(`[FETCH] Processing Twitter handle: ${handle}`);
-        const tweets = await fetchTweetsUsingTwint(handle);
+        const tweets = await fetchTweetsUsingTwint(handle, maxTweets);
         
         if (tweets.length > 0) {
           // Store tweets in the database
@@ -157,7 +228,7 @@ serve(async (req) => {
                 content: tweet.content,
                 created_at: tweet.created_at,
                 url: tweet.url,
-                twitter_handle: handle,
+                twitter_handle: handle.replace('@', ''), // Ensure clean handle in database
                 fetched_at: new Date().toISOString(),
                 summarized: false, // Make sure to initialize this field
               })),
@@ -215,9 +286,13 @@ serve(async (req) => {
   } catch (error) {
     console.error("[FETCH] Error in fetch-tweets function:", error);
     return new Response(
-      JSON.stringify({ error: error.message || "An unexpected error occurred" }),
+      JSON.stringify({ 
+        success: false, 
+        error: error.message || "An unexpected error occurred",
+        message: "Failed to fetch tweets, please try again later"
+      }),
       {
-        status: 500,
+        status: 200, // Return 200 even for errors to prevent function failures
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       }
     );

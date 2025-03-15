@@ -41,12 +41,30 @@ serve(async (req) => {
       );
     }
 
+    // Clean up the Twitter handle
+    let cleanTwitterSource = twitterSource;
+    if (cleanTwitterSource.startsWith("@")) {
+      cleanTwitterSource = cleanTwitterSource.substring(1);
+    }
+    // If it's a URL, extract just the username
+    if (cleanTwitterSource.includes("twitter.com/") || cleanTwitterSource.includes("x.com/")) {
+      const matches = cleanTwitterSource.match(/(?:twitter\.com|x\.com)\/([^/?\s]+)/);
+      if (matches && matches[1]) {
+        cleanTwitterSource = matches[1];
+      }
+    } else if (cleanTwitterSource.includes("/")) {
+      // If it has slashes but isn't clearly a URL, just take the first part
+      cleanTwitterSource = cleanTwitterSource.split("/")[0];
+    }
+    
+    console.log(`[NEWSLETTER-SIGNUP] Cleaned Twitter handle: ${cleanTwitterSource}`);
+
     // Check if this specific email + twitter handle combination already exists
     const { data: existingSubscription, error: checkError } = await supabase
       .from("newsletter_subscriptions")
       .select("*")
       .eq("email", email)
-      .eq("twitter_source", twitterSource)
+      .eq("twitter_source", cleanTwitterSource)
       .single();
 
     if (checkError && checkError.code !== "PGRST116") {
@@ -70,7 +88,7 @@ serve(async (req) => {
     // Store the subscription in Supabase
     const { error: insertError } = await supabase
       .from("newsletter_subscriptions")
-      .insert([{ email, twitter_source: twitterSource }]);
+      .insert([{ email, twitter_source: cleanTwitterSource }]);
 
     if (insertError) {
       console.error("[NEWSLETTER-SIGNUP] Error inserting subscription:", insertError);
@@ -86,7 +104,7 @@ serve(async (req) => {
         <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
           <h1 style="color: #4F46E5;">Welcome to ByteSize!</h1>
           <p>Thank you for subscribing to ByteSize, your Twitter feed, curated & summarized.</p>
-          <p>We'll start extracting insights from <strong>${twitterSource}</strong> and deliver them straight to your inbox.</p>
+          <p>We'll start extracting insights from <strong>@${cleanTwitterSource}</strong> and deliver them straight to your inbox.</p>
           <p>Stay tuned for your first newsletter!</p>
           <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #eaeaea; font-size: 12px; color: #666;">
             <p>ByteSize - Your Twitter Feed, Curated & Summarized</p>
