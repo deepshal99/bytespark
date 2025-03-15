@@ -11,7 +11,7 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || "";
 const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") || "";
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
 
-async function fetchTweetsUsingTwint(twitterHandle: string, maxTweets = 10) {
+async function fetchTweetsUsingTwint(twitterHandle: string, maxTweets = 5) {
   try {
     console.log(`[FETCH] Starting to fetch tweets for ${twitterHandle}`);
     
@@ -33,108 +33,180 @@ async function fetchTweetsUsingTwint(twitterHandle: string, maxTweets = 10) {
     
     console.log(`[FETCH] Cleaned Twitter handle: ${cleanHandle}`);
     
-    // Fetch tweets using Twint web service
-    // Using twintproject's API endpoint or a compatible alternative
-    const apiUrl = `https://twintapi.vercel.app/api/tweets?username=${cleanHandle}&limit=${maxTweets}`;
-    console.log(`[FETCH] Fetching tweets from API: ${apiUrl}`);
+    // First API attempt - Nitter-based Twint-compatible API
+    console.log(`[FETCH] Attempting to fetch tweets for ${cleanHandle} from Nitter`);
+    const nitterApiUrl = `https://nitter-api-omega.vercel.app/api/user?username=${cleanHandle}&limit=${maxTweets}`;
     
-    const response = await fetch(apiUrl, {
-      headers: {
-        'Accept': 'application/json',
-      },
-    });
-    
-    if (!response.ok) {
-      console.error(`[FETCH] Failed to fetch tweets: ${response.status} ${response.statusText}`);
-      const errorBody = await response.text();
-      console.error(`[FETCH] Error response body: ${errorBody}`);
-      
-      // Try alternative Twint API endpoint if the first one fails
-      const alternativeApiUrl = `https://twint-api.vercel.app/api/tweets?username=${cleanHandle}&limit=${maxTweets}`;
-      console.log(`[FETCH] Trying alternative API endpoint: ${alternativeApiUrl}`);
-      
-      const alternativeResponse = await fetch(alternativeApiUrl);
-      
-      if (!alternativeResponse.ok) {
-        console.error(`[FETCH] Alternative API also failed: ${alternativeResponse.status}`);
-        throw new Error(`Failed to fetch tweets from both API endpoints`);
-      }
-      
-      const alternativeTweetsData = await alternativeResponse.json();
-      console.log(`[FETCH] Alternative API response:`, alternativeTweetsData);
-      
-      if (!alternativeTweetsData.tweets || alternativeTweetsData.tweets.length === 0) {
-        console.log(`[FETCH] No tweets found for ${cleanHandle} from alternative API`);
-        return [];
-      }
-      
-      // Format the tweets from the alternative API
-      return alternativeTweetsData.tweets.map((tweet: any) => {
-        return {
-          id: tweet.id,
-          content: tweet.tweet,
-          created_at: new Date(tweet.date).toISOString(),
-          url: `https://twitter.com/${cleanHandle}/status/${tweet.id}`,
-          twitter_handle: cleanHandle,
-        };
-      });
-    }
-    
-    const tweetsData = await response.json();
-    console.log(`[FETCH] Raw Twint response:`, tweetsData);
-    
-    if (!tweetsData.tweets || tweetsData.tweets.length === 0) {
-      console.log(`[FETCH] No tweets found for ${cleanHandle}`);
-      return [];
-    }
-    
-    // Format the tweets into our database structure
-    const tweets = tweetsData.tweets.map((tweet: any) => {
-      return {
-        id: tweet.id,
-        content: tweet.tweet,
-        created_at: new Date(tweet.date).toISOString(),
-        url: `https://twitter.com/${cleanHandle}/status/${tweet.id}`,
-        twitter_handle: cleanHandle,
-      };
-    });
-    
-    console.log(`[FETCH] Successfully extracted ${tweets.length} tweets for ${cleanHandle}`);
-    return tweets;
-  } catch (error) {
-    console.error(`[FETCH] Error fetching tweets for ${twitterHandle}:`, error);
-    
-    // As a last resort, try a third API endpoint
     try {
-      console.log(`[FETCH] Attempting final fallback API for ${twitterHandle}`);
-      const finalFallbackUrl = `https://twint-public-api.vercel.app/api/v1/tweets?username=${twitterHandle.replace('@', '')}&limit=${maxTweets}`;
-      
-      const finalResponse = await fetch(finalFallbackUrl);
-      if (!finalResponse.ok) {
-        throw new Error(`Final API also failed: ${finalResponse.status}`);
-      }
-      
-      const finalData = await finalResponse.json();
-      
-      if (!finalData.data || !Array.isArray(finalData.data) || finalData.data.length === 0) {
-        throw new Error("No tweets in final API response");
-      }
-      
-      console.log(`[FETCH] Final API successful with ${finalData.data.length} tweets`);
-      
-      return finalData.data.map((tweet: any) => {
-        return {
-          id: tweet.id_str || tweet.id,
-          content: tweet.full_text || tweet.text,
-          created_at: new Date(tweet.created_at).toISOString(),
-          url: `https://twitter.com/${twitterHandle.replace('@', '')}/status/${tweet.id_str || tweet.id}`,
-          twitter_handle: twitterHandle.replace('@', ''),
-        };
+      const nitterResponse = await fetch(nitterApiUrl, {
+        headers: {
+          'Accept': 'application/json',
+          'User-Agent': 'ByteSize/1.0'
+        },
       });
-    } catch (finalError) {
-      console.error(`[FETCH] All API attempts failed for ${twitterHandle}:`, finalError);
-      throw error; // Throw the original error
+      
+      if (nitterResponse.ok) {
+        const nitterData = await nitterResponse.json();
+        console.log(`[FETCH] Nitter API response status: ${nitterResponse.status}`);
+        
+        if (nitterData && nitterData.tweets && nitterData.tweets.length > 0) {
+          console.log(`[FETCH] Successfully fetched ${nitterData.tweets.length} tweets from Nitter`);
+          
+          return nitterData.tweets.map((tweet: any) => {
+            return {
+              id: tweet.id,
+              content: tweet.text || tweet.tweet,
+              created_at: new Date(tweet.date || tweet.timestamp).toISOString(),
+              url: `https://twitter.com/${cleanHandle}/status/${tweet.id}`,
+              twitter_handle: cleanHandle,
+            };
+          });
+        }
+      }
+      console.log(`[FETCH] Nitter API failed or returned no tweets: ${nitterResponse.status}`);
+    } catch (nitterError) {
+      console.error(`[FETCH] Nitter API error:`, nitterError);
     }
+    
+    // Second API attempt - Twitter API adapter
+    console.log(`[FETCH] Attempting to fetch tweets for ${cleanHandle} from Twitter API adapter`);
+    const twitterApiUrl = `https://api.twitterpicker.com/user_timeline?screen_name=${cleanHandle}&count=${maxTweets}`;
+    
+    try {
+      const twitterResponse = await fetch(twitterApiUrl, {
+        headers: {
+          'Accept': 'application/json',
+          'User-Agent': 'ByteSize/1.0'
+        },
+      });
+      
+      if (twitterResponse.ok) {
+        const twitterData = await twitterResponse.json();
+        console.log(`[FETCH] Twitter API adapter response status: ${twitterResponse.status}`);
+        
+        if (Array.isArray(twitterData) && twitterData.length > 0) {
+          console.log(`[FETCH] Successfully fetched ${twitterData.length} tweets from Twitter API adapter`);
+          
+          return twitterData.map((tweet: any) => {
+            return {
+              id: tweet.id_str,
+              content: tweet.full_text || tweet.text,
+              created_at: new Date(tweet.created_at).toISOString(),
+              url: `https://twitter.com/${cleanHandle}/status/${tweet.id_str}`,
+              twitter_handle: cleanHandle,
+            };
+          });
+        }
+      }
+      console.log(`[FETCH] Twitter API adapter failed or returned no tweets: ${twitterResponse.status}`);
+    } catch (twitterError) {
+      console.error(`[FETCH] Twitter API adapter error:`, twitterError);
+    }
+    
+    // Third API attempt - Scraping Twitter HTML (similar to Twint's approach)
+    console.log(`[FETCH] Attempting to fetch tweets for ${cleanHandle} via Twitter HTML scraping`);
+    const scrapingUrl = `https://syndication.twitter.com/srv/timeline-profile/screen-name/${cleanHandle}`;
+    
+    try {
+      const scrapingResponse = await fetch(scrapingUrl, {
+        headers: {
+          'Accept': 'application/json, text/javascript, */*; q=0.01',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        },
+      });
+      
+      if (scrapingResponse.ok) {
+        const htmlText = await scrapingResponse.text();
+        console.log(`[FETCH] Twitter HTML scraping response status: ${scrapingResponse.status}, length: ${htmlText.length}`);
+        
+        // Extract tweet data from the HTML using regex patterns similar to Twint
+        const tweetMatches = htmlText.match(/<div[^>]*data-tweet-id="(\d+)"[^>]*>[\s\S]*?<p class="timeline-Tweet-text"[^>]*>([\s\S]*?)<\/p>[\s\S]*?<time[^>]*datetime="([^"]+)"[^>]*>/g);
+        
+        if (tweetMatches && tweetMatches.length > 0) {
+          console.log(`[FETCH] Successfully extracted ${tweetMatches.length} tweets from HTML`);
+          
+          const extractedTweets = [];
+          for (let i = 0; i < Math.min(tweetMatches.length, maxTweets); i++) {
+            const match = tweetMatches[i];
+            const idMatch = match.match(/data-tweet-id="(\d+)"/);
+            const textMatch = match.match(/<p class="timeline-Tweet-text"[^>]*>([\s\S]*?)<\/p>/);
+            const dateMatch = match.match(/<time[^>]*datetime="([^"]+)"[^>]*>/);
+            
+            if (idMatch && textMatch && dateMatch) {
+              const id = idMatch[1];
+              // Remove HTML tags from content
+              const content = textMatch[1].replace(/<[^>]*>/g, '');
+              const date = dateMatch[1];
+              
+              extractedTweets.push({
+                id,
+                content,
+                created_at: new Date(date).toISOString(),
+                url: `https://twitter.com/${cleanHandle}/status/${id}`,
+                twitter_handle: cleanHandle,
+              });
+            }
+          }
+          
+          if (extractedTweets.length > 0) {
+            return extractedTweets;
+          }
+        }
+      }
+      console.log(`[FETCH] Twitter HTML scraping failed or returned no tweets: ${scrapingResponse.status}`);
+    } catch (scrapingError) {
+      console.error(`[FETCH] Twitter HTML scraping error:`, scrapingError);
+    }
+    
+    // Final fallback - Twint-compatible REST API
+    console.log(`[FETCH] Attempting final fallback for ${cleanHandle}`);
+    const fallbackUrl = `https://twint-public-api.vercel.app/api/v1/tweets?username=${cleanHandle}&limit=${maxTweets}`;
+    
+    try {
+      const fallbackResponse = await fetch(fallbackUrl);
+      
+      if (fallbackResponse.ok) {
+        const fallbackData = await fallbackResponse.json();
+        console.log(`[FETCH] Fallback API response status: ${fallbackResponse.status}`);
+        
+        if (fallbackData && fallbackData.data && Array.isArray(fallbackData.data) && fallbackData.data.length > 0) {
+          console.log(`[FETCH] Successfully fetched ${fallbackData.data.length} tweets from fallback API`);
+          
+          return fallbackData.data.map((tweet: any) => {
+            return {
+              id: tweet.id_str || tweet.id,
+              content: tweet.full_text || tweet.text,
+              created_at: new Date(tweet.created_at).toISOString(),
+              url: `https://twitter.com/${cleanHandle}/status/${tweet.id_str || tweet.id}`,
+              twitter_handle: cleanHandle,
+            };
+          });
+        }
+      }
+      console.log(`[FETCH] Fallback API failed or returned no tweets: ${fallbackResponse.status}`);
+    } catch (fallbackError) {
+      console.error(`[FETCH] Fallback API error:`, fallbackError);
+    }
+    
+    console.error(`[FETCH] All API attempts failed for ${cleanHandle}`);
+    
+    // Last resort - Generate mock tweets but clearly mark them as mock
+    console.log(`[FETCH] Generating clearly marked mock tweets for ${cleanHandle} as last resort`);
+    const mockTweets = [];
+    for (let i = 0; i < maxTweets; i++) {
+      mockTweets.push({
+        id: `mock-${Date.now()}-${i}`,
+        content: `[MOCK TWEET] This is a mock tweet #${i+1} for @${cleanHandle} because all API fetching attempts failed. Please check logs and try again later.`,
+        created_at: new Date().toISOString(),
+        url: `https://twitter.com/${cleanHandle}`,
+        twitter_handle: cleanHandle,
+      });
+    }
+    return mockTweets;
+    
+  } catch (error) {
+    console.error(`[FETCH] Fatal error fetching tweets for ${twitterHandle}:`, error);
+    throw error;
   }
 }
 
@@ -172,7 +244,7 @@ serve(async (req) => {
     // Parse request body for test mode and targetEmail
     let isTest = false;
     let targetEmail = null;
-    let maxTweets = 10; // Default number of tweets to fetch
+    let maxTweets = 5; // Default to 5 tweets (changed from 10)
     
     try {
       const body = await req.json();
@@ -230,7 +302,7 @@ serve(async (req) => {
                 url: tweet.url,
                 twitter_handle: handle.replace('@', ''), // Ensure clean handle in database
                 fetched_at: new Date().toISOString(),
-                summarized: false, // Make sure to initialize this field
+                summarized: false, // Initialize this field
               })),
               { onConflict: "tweet_id" }
             );

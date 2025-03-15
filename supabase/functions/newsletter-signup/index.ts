@@ -85,7 +85,7 @@ serve(async (req) => {
       );
     }
 
-    // Store the subscription in Supabase
+    // Store the subscription in Supabase - allow the same email to subscribe to multiple Twitter handles
     const { error: insertError } = await supabase
       .from("newsletter_subscriptions")
       .insert([{ email, twitter_source: cleanTwitterSource }]);
