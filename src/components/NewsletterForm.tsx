@@ -68,7 +68,7 @@ const NewsletterForm = () => {
         
         <motion.div className="relative" variants={itemVariants}>
           <AtSign className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground" size={20} />
-          <input type="text" placeholder="Twitter profile or thread link" value={twitterSource} onChange={e => setTwitterSource(e.target.value)} className="form-input pl-10" required />
+          <input type="text" placeholder="Twitter profile or thread link" value={twitterSource} onChange={e => setTwitterSource(e.target.value)} required className="form-input pl-10 px-[41px]" />
         </motion.div>
         
         <motion.button type="submit" className="btn-primary w-full flex items-center justify-center group" disabled={isSubmitting} variants={itemVariants} whileHover={{
