@@ -1,7 +1,6 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.38.4";
-import { DOMParser } from "https://deno.land/x/deno_dom@v0.1.38/deno-dom-wasm.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -12,16 +11,10 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || "";
 const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") || "";
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
 
-// Base URL for Nitter instance - try alternative instances if the primary one fails
-const NITTER_INSTANCES = [
-  "https://nitter.net",
-  "https://nitter.lacontrevoie.fr",
-  "https://nitter.1d4.us",
-  "https://nitter.kavin.rocks",
-  "https://nitter.unixfox.eu"
-];
+// Twitter API configuration
+const BEARER_TOKEN = Deno.env.get("TWITTER_BEARER_TOKEN") || "";
 
-async function fetchTweetsFromNitter(twitterHandle: string, maxTweets = 10) {
+async function fetchTweetsFromTwitterAPI(twitterHandle: string, maxTweets = 10) {
   try {
     console.log(`[FETCH] Starting to fetch tweets for ${twitterHandle}`);
     
@@ -43,104 +36,75 @@ async function fetchTweetsFromNitter(twitterHandle: string, maxTweets = 10) {
     
     console.log(`[FETCH] Cleaned Twitter handle: ${cleanHandle}`);
     
-    // Try different Nitter instances until one works
-    let success = false;
-    let document = null;
-    let usedInstance = "";
+    if (!BEARER_TOKEN) {
+      console.error("[FETCH] Missing Twitter API Bearer Token");
+      throw new Error("Twitter API configuration is incomplete. Please add TWITTER_BEARER_TOKEN to the environment variables.");
+    }
     
-    for (const instance of NITTER_INSTANCES) {
-      try {
-        console.log(`[FETCH] Trying Nitter instance: ${instance}`);
-        const url = `${instance}/${cleanHandle}`;
-        console.log(`[FETCH] Fetching from URL: ${url}`);
-        
-        const response = await fetch(url);
-        
-        if (!response.ok) {
-          console.error(`[FETCH] Failed to fetch from ${instance}: ${response.status} ${response.statusText}`);
-          continue;
-        }
-        
-        console.log(`[FETCH] Got response from ${instance}, parsing HTML`);
-        const htmlContent = await response.text();
-        
-        if (htmlContent.includes("user not found") || htmlContent.includes("User not found")) {
-          console.error(`[FETCH] Twitter user not found on ${instance}: ${cleanHandle}`);
-          continue;
-        }
-        
-        const parser = new DOMParser();
-        document = parser.parseFromString(htmlContent, "text/html");
-        
-        if (!document) {
-          console.error(`[FETCH] Failed to parse HTML content from ${instance}`);
-          continue;
-        }
-        
-        success = true;
-        usedInstance = instance;
-        break;
-        
-      } catch (instanceError) {
-        console.error(`[FETCH] Error with Nitter instance ${instance}:`, instanceError);
-        // Continue to next instance
+    // Using Twitter API v2 to fetch recent tweets
+    const url = `https://api.twitter.com/2/users/by/username/${cleanHandle}`;
+    console.log(`[FETCH] Fetching user ID from URL: ${url}`);
+    
+    // First, get the user ID from the username
+    const userResponse = await fetch(url, {
+      headers: {
+        "Authorization": `Bearer ${BEARER_TOKEN}`
       }
+    });
+    
+    if (!userResponse.ok) {
+      console.error(`[FETCH] Failed to fetch user data: ${userResponse.status} ${userResponse.statusText}`);
+      const errorBody = await userResponse.text();
+      console.error(`[FETCH] Error response body: ${errorBody}`);
+      throw new Error(`Twitter API error: ${userResponse.status} - ${errorBody}`);
     }
     
-    if (!success || !document) {
-      throw new Error(`Failed to fetch tweets from any Nitter instance for handle: ${cleanHandle}`);
+    const userData = await userResponse.json();
+    console.log(`[FETCH] User data:`, userData);
+    
+    if (!userData.data || !userData.data.id) {
+      console.error(`[FETCH] User not found or invalid response:`, userData);
+      throw new Error(`Could not find Twitter user with handle: ${cleanHandle}`);
     }
     
-    console.log(`[FETCH] Successfully connected to Nitter instance: ${usedInstance}`);
+    const userId = userData.data.id;
+    console.log(`[FETCH] Found user ID: ${userId} for handle: ${cleanHandle}`);
     
-    const tweetElements = document.querySelectorAll(".timeline-item:not(.thread)");
-    console.log(`[FETCH] Found ${tweetElements.length} tweet elements for ${cleanHandle}`);
+    // Now fetch the user's recent tweets
+    const tweetsUrl = `https://api.twitter.com/2/users/${userId}/tweets?max_results=${maxTweets}&tweet.fields=created_at,text&exclude=retweets,replies`;
+    console.log(`[FETCH] Fetching tweets from URL: ${tweetsUrl}`);
     
-    if (tweetElements.length === 0) {
-      console.log(`[FETCH] Timeline DOM structure:`, document.querySelector(".timeline")?.innerHTML || "No timeline found");
-    }
-    
-    const tweets = [];
-    
-    for (let i = 0; i < Math.min(tweetElements.length, maxTweets); i++) {
-      const tweetElement = tweetElements[i];
-      
-      // Check if it's a retweet or a reply (we can skip these if needed)
-      const isRetweet = tweetElement.querySelector(".retweet-header") !== null;
-      const isReply = tweetElement.querySelector(".replying-to") !== null;
-      
-      // Skip retweets and replies if necessary
-      if (isRetweet || isReply) {
-        console.log(`[FETCH] Skipping retweet or reply (${i+1}/${tweetElements.length})`);
-        continue;
+    const tweetsResponse = await fetch(tweetsUrl, {
+      headers: {
+        "Authorization": `Bearer ${BEARER_TOKEN}`
       }
-      
-      const contentElement = tweetElement.querySelector(".tweet-content");
-      const dateElement = tweetElement.querySelector(".tweet-date a");
-      const linkElement = tweetElement.querySelector(".tweet-link");
-      
-      if (contentElement && dateElement && linkElement) {
-        const content = contentElement.textContent.trim();
-        const dateStr = dateElement.getAttribute("title") || "";
-        const tweetId = linkElement.getAttribute("href")?.split("/").pop() || "";
-        const tweetUrl = `https://twitter.com${linkElement.getAttribute("href")}`;
-        
-        tweets.push({
-          id: tweetId,
-          content,
-          created_at: new Date(dateStr).toISOString(),
-          url: tweetUrl,
-          twitter_handle: cleanHandle,
-        });
-        
-        console.log(`[FETCH] Processed tweet ${tweets.length}: ID=${tweetId.substring(0, 8)}...`);
-      } else {
-        console.log(`[FETCH] Could not extract tweet data at index ${i}`);
-        if (!contentElement) console.log(`[FETCH] Missing content element`);
-        if (!dateElement) console.log(`[FETCH] Missing date element`);
-        if (!linkElement) console.log(`[FETCH] Missing link element`);
-      }
+    });
+    
+    if (!tweetsResponse.ok) {
+      console.error(`[FETCH] Failed to fetch tweets: ${tweetsResponse.status} ${tweetsResponse.statusText}`);
+      const errorBody = await tweetsResponse.text();
+      console.error(`[FETCH] Error response body: ${errorBody}`);
+      throw new Error(`Twitter API error: ${tweetsResponse.status} - ${errorBody}`);
     }
+    
+    const tweetsData = await tweetsResponse.json();
+    console.log(`[FETCH] Retrieved ${tweetsData.data?.length || 0} tweets`);
+    
+    if (!tweetsData.data || tweetsData.data.length === 0) {
+      console.log(`[FETCH] No tweets found for ${cleanHandle}`);
+      return [];
+    }
+    
+    // Format the tweets into our database structure
+    const tweets = tweetsData.data.map((tweet: any) => {
+      return {
+        id: tweet.id,
+        content: tweet.text,
+        created_at: tweet.created_at,
+        url: `https://twitter.com/${cleanHandle}/status/${tweet.id}`,
+        twitter_handle: cleanHandle,
+      };
+    });
     
     console.log(`[FETCH] Successfully extracted ${tweets.length} tweets for ${cleanHandle}`);
     return tweets;
@@ -221,7 +185,7 @@ serve(async (req) => {
     for (const handle of twitterHandles) {
       try {
         console.log(`[FETCH] Processing Twitter handle: ${handle}`);
-        const tweets = await fetchTweetsFromNitter(handle);
+        const tweets = await fetchTweetsFromTwitterAPI(handle);
         
         if (tweets.length > 0) {
           // Store tweets in the database

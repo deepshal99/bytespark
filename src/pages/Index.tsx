@@ -30,20 +30,7 @@ const Index = () => {
         formattedTwitterHandle = `@${twitterHandle}`;
       }
       
-      console.log('Sending to edge function:', { email, twitterSource: formattedTwitterHandle });
-      
-      // Call manual-run with the fetch action to test if the handle works
-      const testFetch = await supabase.functions.invoke('manual-run', {
-        body: { 
-          action: 'fetch',
-          email
-        }
-      });
-      
-      if (testFetch.error) {
-        console.error('Test fetch error:', testFetch.error);
-        throw new Error('Could not verify Twitter handle. Please try again.');
-      }
+      console.log('Subscribing with:', { email, twitterSource: formattedTwitterHandle });
       
       // Now call the newsletter-signup edge function
       const { data, error } = await supabase.functions.invoke('newsletter-signup', {
