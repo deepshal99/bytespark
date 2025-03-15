@@ -1,7 +1,8 @@
+
 import React, { useState } from 'react';
 import { toast } from 'react-toastify';
 import { motion } from 'framer-motion';
-import { ArrowRight, Mail, AtSign, Send, PlayCircle, Zap } from 'lucide-react';
+import { ArrowRight, Mail, AtSign, Send, PlayCircle, Zap, AlertCircle } from 'lucide-react';
 import { supabase } from "@/integrations/supabase/client";
 
 type NewsletterFormProps = {
@@ -24,6 +25,7 @@ const NewsletterForm = ({
   const [isTestingSystem, setIsTestingSystem] = useState(false);
   const [testMode, setTestMode] = useState<'full' | 'fetch' | 'summarize' | 'send'>('full');
   const [isQuickTesting, setIsQuickTesting] = useState(false);
+  const [usedMockData, setUsedMockData] = useState(false);
   
   const runManualTest = async () => {
     if (!email) {
@@ -37,9 +39,8 @@ const NewsletterForm = ({
       
       console.log(`Running manual test with email: ${email}, mode: ${testMode}`);
       
-      const { data, error } = await supabase.functions.invoke('manual-run', {
+      const { data, error } = await supabase.functions.invoke('test-newsletter-system', {
         body: { 
-          action: 'test', 
           email,
           mode: testMode
         }
@@ -75,6 +76,7 @@ const NewsletterForm = ({
     
     try {
       setIsQuickTesting(true);
+      setUsedMockData(false);
       toast.info(`Starting quick test for ${twitterSource}. This may take a minute...`);
       
       console.log(`Running quick test for email: ${email}, handle: ${twitterSource}`);
@@ -82,7 +84,7 @@ const NewsletterForm = ({
       const { data, error } = await supabase.functions.invoke('quick-test', {
         body: { 
           email,
-          twitterHandle: twitterSource
+          twitterSource
         }
       });
       
@@ -93,7 +95,15 @@ const NewsletterForm = ({
       }
       
       console.log('Quick test result:', data);
-      toast.success('Quick test completed! Check your email for results.');
+      
+      if (data.usedMockData) {
+        setUsedMockData(true);
+        toast.success('Quick test completed using mock data! Check your email for results.', {
+          icon: <AlertCircle className="text-yellow-500" />
+        });
+      } else {
+        toast.success('Quick test completed with real tweets! Check your email for results.');
+      }
       
     } catch (error) {
       console.error('Quick test error:', error);
@@ -185,7 +195,7 @@ const NewsletterForm = ({
           <button
             type="button"
             onClick={runQuickTest}
-            className="w-full bg-green-600 hover:bg-green-700 text-white p-3 rounded-md transition-colors flex items-center justify-center"
+            className={`w-full ${usedMockData ? 'bg-yellow-600 hover:bg-yellow-700' : 'bg-green-600 hover:bg-green-700'} text-white p-3 rounded-md transition-colors flex items-center justify-center`}
             disabled={isQuickTesting}
           >
             {isQuickTesting ? (
@@ -193,12 +203,14 @@ const NewsletterForm = ({
             ) : (
               <>
                 <Zap className="mr-2 h-5 w-5" />
-                Quick Test Now
+                {usedMockData ? 'Quick Test (using mock data)' : 'Quick Test Now'}
               </>
             )}
           </button>
           <p className="text-xs text-gray-500 text-center">
-            Immediately fetch, summarize and email the latest tweets
+            {usedMockData 
+              ? 'Note: Last test used mock data as real tweets were unavailable' 
+              : 'Immediately fetch, summarize and email the latest tweets'}
           </p>
           
           <div className="flex gap-2 mt-4 pt-4 border-t border-gray-200">
