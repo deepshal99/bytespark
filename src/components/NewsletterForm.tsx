@@ -1,8 +1,7 @@
-
 import React, { useState } from 'react';
 import { toast } from 'react-toastify';
 import { motion } from 'framer-motion';
-import { ArrowRight, Mail, AtSign, Send, PlayCircle } from 'lucide-react';
+import { ArrowRight, Mail, AtSign, Send, PlayCircle, Zap } from 'lucide-react';
 import { supabase } from "@/integrations/supabase/client";
 
 type NewsletterFormProps = {
@@ -24,6 +23,7 @@ const NewsletterForm = ({
 }: NewsletterFormProps) => {
   const [isTestingSystem, setIsTestingSystem] = useState(false);
   const [testMode, setTestMode] = useState<'full' | 'fetch' | 'summarize' | 'send'>('full');
+  const [isQuickTesting, setIsQuickTesting] = useState(false);
   
   const runManualTest = async () => {
     if (!email) {
@@ -59,6 +59,47 @@ const NewsletterForm = ({
       toast.error('Failed to run test. Please try again.');
     } finally {
       setIsTestingSystem(false);
+    }
+  };
+  
+  const runQuickTest = async () => {
+    if (!email) {
+      toast.error('Please enter your email to run a quick test');
+      return;
+    }
+    
+    if (!twitterSource) {
+      toast.error('Please enter a Twitter handle to run a quick test');
+      return;
+    }
+    
+    try {
+      setIsQuickTesting(true);
+      toast.info(`Starting quick test for ${twitterSource}. This may take a minute...`);
+      
+      console.log(`Running quick test for email: ${email}, handle: ${twitterSource}`);
+      
+      const { data, error } = await supabase.functions.invoke('quick-test', {
+        body: { 
+          email,
+          twitterHandle: twitterSource
+        }
+      });
+      
+      if (error) {
+        console.error('Quick test error:', error);
+        toast.error(error.message || 'Failed to run quick test. Please try again.');
+        return;
+      }
+      
+      console.log('Quick test result:', data);
+      toast.success('Quick test completed! Check your email for results.');
+      
+    } catch (error) {
+      console.error('Quick test error:', error);
+      toast.error('Failed to run quick test. Please try again.');
+    } finally {
+      setIsQuickTesting(false);
     }
   };
   
@@ -141,7 +182,26 @@ const NewsletterForm = ({
         </motion.button>
         
         <motion.div className="mt-4 space-y-2" variants={itemVariants}>
-          <div className="flex gap-2 mb-2">
+          <button
+            type="button"
+            onClick={runQuickTest}
+            className="w-full bg-green-600 hover:bg-green-700 text-white p-3 rounded-md transition-colors flex items-center justify-center"
+            disabled={isQuickTesting}
+          >
+            {isQuickTesting ? (
+              <div className="h-5 w-5 rounded-full border-2 border-t-transparent border-white animate-spin mr-2"></div>
+            ) : (
+              <>
+                <Zap className="mr-2 h-5 w-5" />
+                Quick Test Now
+              </>
+            )}
+          </button>
+          <p className="text-xs text-gray-500 text-center">
+            Immediately fetch, summarize and email the latest tweets
+          </p>
+          
+          <div className="flex gap-2 mt-4 pt-4 border-t border-gray-200">
             <select 
               value={testMode}
               onChange={(e) => setTestMode(e.target.value as any)}

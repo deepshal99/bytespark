@@ -101,6 +101,12 @@ const Index = () => {
                 <p className="text-green-700">
                   Thank you for subscribing to ByteSize. Check your inbox for a confirmation email.
                 </p>
+                <button
+                  onClick={() => setSubscribed(false)}
+                  className="mt-4 text-indigo-600 underline hover:text-indigo-800"
+                >
+                  Subscribe to another Twitter account
+                </button>
               </div>
             )}
           </div>
