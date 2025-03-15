@@ -21,17 +21,14 @@ const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-// Twitter API token
-const RETTIWT_API_KEY = process.env.RETTIWT_API_KEY;
+// Twitter API token - trim to remove any whitespace that might cause issues
+const RETTIWT_API_KEY = process.env.RETTIWT_API_KEY ? process.env.RETTIWT_API_KEY.trim() : null;
 
-// Simulated wait time for API initialization
-let apiInitialized = false;
-setTimeout(() => {
-  console.log('Rettiwt API initialized');
-  apiInitialized = true;
-}, 2000);
+// Initialize API immediately instead of waiting
+let apiInitialized = RETTIWT_API_KEY ? true : false;
+console.log(`Rettiwt API initialization status: ${apiInitialized ? 'Ready' : 'Failed - Missing API key'}`);
 
-// Function to fetch tweets from Twitter API
+// Function to fetch tweets from Twitter API with better error handling
 async function fetchTweets(username, count = 10) {
   try {
     if (!RETTIWT_API_KEY) {
@@ -42,10 +39,29 @@ async function fetchTweets(username, count = 10) {
     const maskedKey = RETTIWT_API_KEY.substring(0, 5) + '...' + RETTIWT_API_KEY.substring(RETTIWT_API_KEY.length - 5);
     console.log(`Using API key: ${maskedKey}`);
 
-    // Construct the Twitter API URL
-    const apiUrl = `https://api.twitter.com/2/users/by/username/${username}/tweets`;
+    // The proper Twitter API v2 endpoint for getting user tweets
+    // First get the user ID by username
+    console.log(`Looking up user ID for username: ${username}`);
     
-    console.log(`Fetching tweets for ${username} from ${apiUrl}`);
+    const userLookupUrl = `https://api.twitter.com/2/users/by/username/${username}`;
+    const userResponse = await axios.get(userLookupUrl, {
+      headers: {
+        'Authorization': `Bearer ${RETTIWT_API_KEY}`
+      },
+      timeout: 10000 // 10 second timeout
+    });
+    
+    if (!userResponse.data || !userResponse.data.data || !userResponse.data.data.id) {
+      console.error(`User not found: ${username}`);
+      throw new Error(`Twitter user not found: ${username}`);
+    }
+    
+    const userId = userResponse.data.data.id;
+    console.log(`Found user ID for ${username}: ${userId}`);
+    
+    // Now get the user's tweets with the ID
+    const tweetsUrl = `https://api.twitter.com/2/users/${userId}/tweets`;
+    console.log(`Fetching tweets for user ID ${userId} from ${tweetsUrl}`);
     
     // Make request to Twitter API with exponential backoff (3 attempts)
     let response;
@@ -54,7 +70,7 @@ async function fetchTweets(username, count = 10) {
     
     while (attempts < maxAttempts) {
       try {
-        response = await axios.get(apiUrl, {
+        response = await axios.get(tweetsUrl, {
           headers: {
             'Authorization': `Bearer ${RETTIWT_API_KEY}`
           },
@@ -62,23 +78,34 @@ async function fetchTweets(username, count = 10) {
             max_results: count,
             'tweet.fields': 'created_at,text'
           },
-          timeout: 10000 // 10 second timeout
+          timeout: 15000 // 15 second timeout
         });
-        break; // Success, exit the retry loop
+        
+        // Check if we have a proper response with data
+        if (response && response.data && response.data.data) {
+          break; // Success, exit the retry loop
+        } else {
+          throw new Error('Twitter API returned an empty response');
+        }
       } catch (error) {
         attempts++;
-        console.log(`API request failed (attempt ${attempts}/${maxAttempts}): ${error.message}`);
+        const status = error.response ? error.response.status : 'unknown';
+        const message = error.response && error.response.data ? JSON.stringify(error.response.data) : error.message;
+        
+        console.log(`API request failed (attempt ${attempts}/${maxAttempts}): Status ${status}, ${message}`);
         
         if (attempts >= maxAttempts) {
           throw error; // Rethrow after max attempts
         }
         
         // Exponential backoff: wait 2^attempt * 1000ms
-        await new Promise(resolve => setTimeout(resolve, Math.pow(2, attempts) * 1000));
+        const backoffTime = Math.pow(2, attempts) * 1000;
+        console.log(`Retrying in ${backoffTime/1000} seconds...`);
+        await new Promise(resolve => setTimeout(resolve, backoffTime));
       }
     }
     
-    if (response && response.data && response.data.data) {
+    if (response && response.data && response.data.data && response.data.data.length > 0) {
       // Successfully retrieved tweets
       console.log(`Retrieved ${response.data.data.length} tweets for ${username}`);
       
@@ -94,7 +121,7 @@ async function fetchTweets(username, count = 10) {
     }
   } catch (error) {
     console.error(`Error fetching tweets for ${username}:`, error.message);
-    throw new Error(`Twint API error: ${error.message}`);
+    throw new Error(`Twitter API error: ${error.message}`);
   }
 }
 
@@ -124,7 +151,8 @@ function generateMockTweets(username, count = 5) {
 app.get('/health', (req, res) => {
   res.status(200).json({ 
     status: 'ok', 
-    apiInitialized: apiInitialized 
+    apiInitialized: apiInitialized, 
+    apiKeyPresent: !!RETTIWT_API_KEY
   });
 });
 
@@ -141,9 +169,9 @@ app.post('/fetch-tweets', async (req, res) => {
   try {
     // Ensure API is initialized
     if (!apiInitialized) {
-      console.log('API not yet initialized, waiting...');
+      console.log('API not initialized, cannot fetch real tweets');
       return res.status(503).json({ 
-        error: 'API initialization in progress, please try again in a few seconds' 
+        error: 'API initialization failed, please check server logs' 
       });
     }
     
@@ -151,19 +179,25 @@ app.post('/fetch-tweets', async (req, res) => {
     const cleanUsername = username.startsWith('@') ? username.substring(1) : username;
     
     let tweets;
+    let usedMockData = false;
+    
     try {
+      console.log(`Attempting to fetch real tweets for ${cleanUsername}`);
       tweets = await fetchTweets(cleanUsername);
+      console.log(`Successfully fetched ${tweets.length} real tweets`);
     } catch (error) {
       console.error(`Error fetching real tweets: ${error.message}`);
       
       // Fallback to mock tweets
-      console.log('Falling back to mock tweets');
+      console.log('Falling back to mock tweets due to API error');
       tweets = generateMockTweets(cleanUsername);
+      usedMockData = true;
     }
     
     if (tweets.length === 0) {
       console.log('No tweets found, generating mock tweets as fallback');
       tweets = generateMockTweets(cleanUsername);
+      usedMockData = true;
     }
     
     if (supabase && email) {
@@ -178,7 +212,8 @@ app.post('/fetch-tweets', async (req, res) => {
             created_at: tweet.created_at,
             fetched_at: new Date().toISOString(),
             processed: false,
-            email: email
+            email: email,
+            is_mock: usedMockData
           })));
           
         if (error) {
@@ -194,7 +229,8 @@ app.post('/fetch-tweets', async (req, res) => {
     res.json({ 
       tweets,
       count: tweets.length,
-      username: cleanUsername
+      username: cleanUsername,
+      usedMockData: usedMockData
     });
   } catch (error) {
     console.error('Error processing request:', error.message);
@@ -205,7 +241,7 @@ app.post('/fetch-tweets', async (req, res) => {
 });
 
 // Start the server
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`SocialSpyder API server running on port ${PORT}`);
   console.log(`Frontend URL: ${process.env.FRONTEND_URL || 'http://localhost:8080'}`);
 });

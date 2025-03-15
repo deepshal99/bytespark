@@ -153,9 +153,12 @@ serve(async (req) => {
       }
       
       const fetchData = await fetchResponse.json();
-      tweets = fetchData.tweets || [];
+      console.log("[QUICK-TEST] Fetch tweets result:", JSON.stringify(fetchData, null, 2));
       
-      console.log(`Successfully fetched ${tweets.length} tweets from Rettiwt API`);
+      tweets = fetchData.tweets || [];
+      usedMockData = fetchData.usedMockData || false;
+      
+      console.log(`Successfully fetched ${tweets.length} tweets from Rettiwt API (${usedMockData ? 'mock data' : 'real data'})`);
       
       // Store tweets in Supabase if they were fetched successfully
       if (tweets.length > 0) {
@@ -168,7 +171,8 @@ serve(async (req) => {
             created_at: tweet.created_at || new Date().toISOString(),
             fetched_at: new Date().toISOString(),
             processed: false,
-            email: email
+            email: email,
+            is_mock: usedMockData
           })));
         
         if (storeError) {
