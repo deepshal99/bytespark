@@ -11,14 +11,11 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || "";
 const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") || "";
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
 
-// Twitter API configuration
-const BEARER_TOKEN = Deno.env.get("TWITTER_BEARER_TOKEN") || "";
-
-async function fetchTweetsFromTwitterAPI(twitterHandle: string, maxTweets = 10) {
+async function fetchTweetsUsingTwint(twitterHandle: string, maxTweets = 10) {
   try {
     console.log(`[FETCH] Starting to fetch tweets for ${twitterHandle}`);
     
-    // Clean up the Twitter handle - remove URL components if present
+    // Clean up the Twitter handle
     let cleanHandle = twitterHandle;
     if (cleanHandle.startsWith("@")) {
       cleanHandle = cleanHandle.substring(1);
@@ -36,71 +33,33 @@ async function fetchTweetsFromTwitterAPI(twitterHandle: string, maxTweets = 10) 
     
     console.log(`[FETCH] Cleaned Twitter handle: ${cleanHandle}`);
     
-    if (!BEARER_TOKEN) {
-      console.error("[FETCH] Missing Twitter API Bearer Token");
-      throw new Error("Twitter API configuration is incomplete. Please add TWITTER_BEARER_TOKEN to the environment variables.");
-    }
+    // Fetch tweets using Twint web scraping
+    const apiUrl = `https://twintapp.vercel.app/api/twint?username=${cleanHandle}&limit=${maxTweets}`;
+    console.log(`[FETCH] Fetching tweets from Twint API: ${apiUrl}`);
     
-    // Using Twitter API v2 to fetch recent tweets
-    const url = `https://api.twitter.com/2/users/by/username/${cleanHandle}`;
-    console.log(`[FETCH] Fetching user ID from URL: ${url}`);
+    const response = await fetch(apiUrl);
     
-    // First, get the user ID from the username
-    const userResponse = await fetch(url, {
-      headers: {
-        "Authorization": `Bearer ${BEARER_TOKEN}`
-      }
-    });
-    
-    if (!userResponse.ok) {
-      console.error(`[FETCH] Failed to fetch user data: ${userResponse.status} ${userResponse.statusText}`);
-      const errorBody = await userResponse.text();
+    if (!response.ok) {
+      console.error(`[FETCH] Failed to fetch tweets: ${response.status} ${response.statusText}`);
+      const errorBody = await response.text();
       console.error(`[FETCH] Error response body: ${errorBody}`);
-      throw new Error(`Twitter API error: ${userResponse.status} - ${errorBody}`);
+      throw new Error(`Twint API error: ${response.status} - ${errorBody}`);
     }
     
-    const userData = await userResponse.json();
-    console.log(`[FETCH] User data:`, userData);
+    const tweetsData = await response.json();
+    console.log(`[FETCH] Raw Twint response:`, tweetsData);
     
-    if (!userData.data || !userData.data.id) {
-      console.error(`[FETCH] User not found or invalid response:`, userData);
-      throw new Error(`Could not find Twitter user with handle: ${cleanHandle}`);
-    }
-    
-    const userId = userData.data.id;
-    console.log(`[FETCH] Found user ID: ${userId} for handle: ${cleanHandle}`);
-    
-    // Now fetch the user's recent tweets
-    const tweetsUrl = `https://api.twitter.com/2/users/${userId}/tweets?max_results=${maxTweets}&tweet.fields=created_at,text&exclude=retweets,replies`;
-    console.log(`[FETCH] Fetching tweets from URL: ${tweetsUrl}`);
-    
-    const tweetsResponse = await fetch(tweetsUrl, {
-      headers: {
-        "Authorization": `Bearer ${BEARER_TOKEN}`
-      }
-    });
-    
-    if (!tweetsResponse.ok) {
-      console.error(`[FETCH] Failed to fetch tweets: ${tweetsResponse.status} ${tweetsResponse.statusText}`);
-      const errorBody = await tweetsResponse.text();
-      console.error(`[FETCH] Error response body: ${errorBody}`);
-      throw new Error(`Twitter API error: ${tweetsResponse.status} - ${errorBody}`);
-    }
-    
-    const tweetsData = await tweetsResponse.json();
-    console.log(`[FETCH] Retrieved ${tweetsData.data?.length || 0} tweets`);
-    
-    if (!tweetsData.data || tweetsData.data.length === 0) {
+    if (!tweetsData.tweets || tweetsData.tweets.length === 0) {
       console.log(`[FETCH] No tweets found for ${cleanHandle}`);
       return [];
     }
     
     // Format the tweets into our database structure
-    const tweets = tweetsData.data.map((tweet: any) => {
+    const tweets = tweetsData.tweets.map((tweet: any) => {
       return {
         id: tweet.id,
-        content: tweet.text,
-        created_at: tweet.created_at,
+        content: tweet.tweet,
+        created_at: new Date(tweet.date).toISOString(),
         url: `https://twitter.com/${cleanHandle}/status/${tweet.id}`,
         twitter_handle: cleanHandle,
       };
@@ -185,7 +144,7 @@ serve(async (req) => {
     for (const handle of twitterHandles) {
       try {
         console.log(`[FETCH] Processing Twitter handle: ${handle}`);
-        const tweets = await fetchTweetsFromTwitterAPI(handle);
+        const tweets = await fetchTweetsUsingTwint(handle);
         
         if (tweets.length > 0) {
           // Store tweets in the database

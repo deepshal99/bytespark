@@ -14,8 +14,13 @@ const Index = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!email || !twitterHandle) {
-      toast.error('Please enter both email and Twitter handle');
+    if (!email) {
+      toast.error('Please enter your email address');
+      return;
+    }
+    
+    if (!twitterHandle) {
+      toast.error('Please enter a Twitter handle to follow');
       return;
     }
     
@@ -32,7 +37,7 @@ const Index = () => {
       
       console.log('Subscribing with:', { email, twitterSource: formattedTwitterHandle });
       
-      // Now call the newsletter-signup edge function
+      // Call the newsletter-signup edge function
       const { data, error } = await supabase.functions.invoke('newsletter-signup', {
         body: { 
           email, 
