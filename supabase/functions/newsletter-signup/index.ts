@@ -26,12 +26,12 @@ serve(async (req) => {
 
     // Parse request body
     const requestBody = await req.json();
-    console.log("Request body:", requestBody);
+    console.log("[NEWSLETTER-SIGNUP] Request body:", requestBody);
     
     const { email, twitterSource } = requestBody;
 
     if (!email || !twitterSource) {
-      console.error("Missing required fields:", { email, twitterSource });
+      console.error("[NEWSLETTER-SIGNUP] Missing required fields:", { email, twitterSource });
       return new Response(
         JSON.stringify({ error: "Email and Twitter source are required" }),
         {
@@ -41,23 +41,27 @@ serve(async (req) => {
       );
     }
 
-    // Check if email already exists
+    // Check if this specific email + twitter handle combination already exists
     const { data: existingSubscription, error: checkError } = await supabase
       .from("newsletter_subscriptions")
-      .select("email")
+      .select("*")
       .eq("email", email)
+      .eq("twitter_source", twitterSource)
       .single();
 
     if (checkError && checkError.code !== "PGRST116") {
-      console.error("Error checking existing subscription:", checkError);
+      console.error("[NEWSLETTER-SIGNUP] Error checking existing subscription:", checkError);
       throw new Error("Error checking database");
     }
 
     if (existingSubscription) {
       return new Response(
-        JSON.stringify({ error: "Email already subscribed" }),
+        JSON.stringify({ 
+          success: true, 
+          message: "You're already subscribed to this Twitter account!"
+        }),
         {
-          status: 409, // Conflict
+          status: 200,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         }
       );
@@ -69,7 +73,7 @@ serve(async (req) => {
       .insert([{ email, twitter_source: twitterSource }]);
 
     if (insertError) {
-      console.error("Error inserting subscription:", insertError);
+      console.error("[NEWSLETTER-SIGNUP] Error inserting subscription:", insertError);
       throw new Error("Failed to save subscription");
     }
 
@@ -92,7 +96,7 @@ serve(async (req) => {
       `,
     });
 
-    console.log("Email sent successfully:", emailResponse);
+    console.log("[NEWSLETTER-SIGNUP] Email sent successfully:", emailResponse);
 
     return new Response(
       JSON.stringify({ 
@@ -105,7 +109,7 @@ serve(async (req) => {
       }
     );
   } catch (error) {
-    console.error("Error in newsletter signup:", error);
+    console.error("[NEWSLETTER-SIGNUP] Error in newsletter signup:", error);
     return new Response(
       JSON.stringify({ error: error.message || "An unexpected error occurred" }),
       {
