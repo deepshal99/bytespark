@@ -19,19 +19,31 @@ serve(async (req) => {
   }
 
   try {
+    console.log("[SEND] Starting send-newsletters function");
+    
     if (!RESEND_API_KEY) {
+      console.error("[SEND] RESEND_API_KEY environment variable not set");
       throw new Error("RESEND_API_KEY environment variable not set");
     }
     
+    if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+      console.error("[SEND] Missing Supabase credentials");
+      throw new Error("Missing Supabase credentials");
+    }
+    
+    console.log("[SEND] Creating Supabase client and Resend client");
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
     const resend = new Resend(RESEND_API_KEY);
     
     // Determine if this is a test run or a specific email was requested
     let requestParams = {};
     try {
+      console.log("[SEND] Parsing request parameters");
       requestParams = await req.json();
+      console.log("[SEND] Request parameters:", requestParams);
     } catch (e) {
       // If not valid JSON, proceed with empty params
+      console.log("[SEND] No valid JSON in request body, using default parameters");
       requestParams = {};
     }
     
@@ -39,10 +51,14 @@ serve(async (req) => {
     const targetEmail = requestParams.email;
     const forceResend = requestParams.forceResend === true;
     
+    console.log(`[SEND] Mode: ${isTestRun ? 'Test' : 'Production'}, Target email: ${targetEmail || 'All'}, Force resend: ${forceResend}`);
+    
     // Get current date in YYYY-MM-DD format
     const currentDate = new Date().toISOString().split('T')[0];
+    console.log(`[SEND] Current date: ${currentDate}`);
     
     // Get active subscribers
+    console.log("[SEND] Fetching active subscribers");
     let subscribersQuery = supabase
       .from("newsletter_subscriptions")
       .select("*")
@@ -50,18 +66,21 @@ serve(async (req) => {
     
     // If a test email is specified, only send to that email
     if (targetEmail) {
+      console.log(`[SEND] Filtering to target email: ${targetEmail}`);
       subscribersQuery = subscribersQuery.eq("email", targetEmail);
     }
     
     const { data: subscribers, error: subscribersError } = await subscribersQuery;
     
     if (subscribersError) {
+      console.error("[SEND] Failed to fetch subscribers:", subscribersError);
       throw new Error(`Failed to fetch subscribers: ${subscribersError.message}`);
     }
     
-    console.log(`Found ${subscribers.length} active subscribers`);
+    console.log(`[SEND] Found ${subscribers.length} active subscribers`);
     
     if (subscribers.length === 0) {
+      console.log("[SEND] No active subscribers found, exiting");
       return new Response(
         JSON.stringify({
           success: true,
@@ -80,14 +99,27 @@ serve(async (req) => {
     // Process each subscriber
     for (const subscriber of subscribers) {
       try {
-        console.log(`Processing subscriber: ${subscriber.email}`);
+        console.log(`[SEND] Processing subscriber: ${subscriber.email}`);
         
-        // Get the latest summary for this subscriber's Twitter source
+        // Get the Twitter handle from the subscription
+        if (!subscriber.twitter_source) {
+          console.error(`[SEND] No Twitter source for subscriber ${subscriber.email}, skipping`);
+          emailResults.push({
+            email: subscriber.email,
+            success: false,
+            error: "No Twitter source specified in subscription"
+          });
+          continue;
+        }
+        
+        // Remove @ symbol if present and trim
         const twitterHandle = subscriber.twitter_source.replace('@', '').trim();
+        console.log(`[SEND] Twitter handle for subscriber ${subscriber.email}: ${twitterHandle}`);
 
         // First, check if we've already sent a newsletter for this subscriber today
         // Skip this check if forceResend is true for our 5-minute testing
         if (!forceResend) {
+          console.log(`[SEND] Checking recent deliveries for ${subscriber.email} and ${twitterHandle}`);
           const { data: recentDeliveries, error: deliveriesError } = await supabase
             .from("newsletter_deliveries")
             .select("*")
@@ -98,11 +130,12 @@ serve(async (req) => {
             .limit(1);
           
           if (deliveriesError) {
+            console.error(`[SEND] Failed to check recent deliveries for ${subscriber.email}:`, deliveriesError);
             throw new Error(`Failed to check recent deliveries: ${deliveriesError.message}`);
           }
           
           if (recentDeliveries.length > 0) {
-            console.log(`Already sent newsletter to ${subscriber.email} for ${twitterHandle} today, skipping`);
+            console.log(`[SEND] Already sent newsletter to ${subscriber.email} for ${twitterHandle} today, skipping`);
             emailResults.push({
               email: subscriber.email,
               success: false,
@@ -111,8 +144,12 @@ serve(async (req) => {
             });
             continue;
           }
+        } else {
+          console.log(`[SEND] Force resend enabled for ${subscriber.email}, skipping delivery check`);
         }
         
+        // Get the latest summary for this twitter handle
+        console.log(`[SEND] Fetching latest summary for ${twitterHandle}`);
         const { data: summaries, error: summariesError } = await supabase
           .from("tweet_summaries")
           .select("*")
@@ -121,11 +158,12 @@ serve(async (req) => {
           .limit(1);
         
         if (summariesError) {
+          console.error(`[SEND] Failed to fetch summaries for ${twitterHandle}:`, summariesError);
           throw new Error(`Failed to fetch summaries for ${twitterHandle}: ${summariesError.message}`);
         }
         
         if (summaries.length === 0) {
-          console.log(`No summary found for ${twitterHandle}`);
+          console.log(`[SEND] No summary found for ${twitterHandle}`);
           emailResults.push({
             email: subscriber.email,
             success: false,
@@ -135,6 +173,7 @@ serve(async (req) => {
         }
         
         const summary = summaries[0];
+        console.log(`[SEND] Found summary for ${twitterHandle} from ${summary.created_at}`);
         
         // Create newsletter content
         const formattedDate = new Date().toLocaleDateString('en-US', {
@@ -145,6 +184,7 @@ serve(async (req) => {
         });
         
         // Send the newsletter
+        console.log(`[SEND] Sending email to ${subscriber.email}`);
         const emailResponse = await resend.emails.send({
           from: "ByteSize <onboarding@resend.dev>",
           to: [subscriber.email],
@@ -172,9 +212,10 @@ serve(async (req) => {
           `,
         });
         
-        console.log(`Email sent to ${subscriber.email}:`, emailResponse);
+        console.log(`[SEND] Email sent to ${subscriber.email}:`, emailResponse);
         
         // Save the newsletter delivery record
+        console.log(`[SEND] Recording delivery for ${subscriber.email}`);
         const { error: deliveryError } = await supabase
           .from("newsletter_deliveries")
           .insert({
@@ -185,7 +226,7 @@ serve(async (req) => {
           });
         
         if (deliveryError) {
-          console.error(`Error recording delivery for ${subscriber.email}:`, deliveryError);
+          console.error(`[SEND] Error recording delivery for ${subscriber.email}:`, deliveryError);
         }
         
         emailResults.push({
@@ -194,7 +235,7 @@ serve(async (req) => {
         });
         
       } catch (error) {
-        console.error(`Error processing subscriber ${subscriber.email}:`, error);
+        console.error(`[SEND] Error processing subscriber ${subscriber.email}:`, error);
         emailResults.push({
           email: subscriber.email,
           success: false,
@@ -204,6 +245,7 @@ serve(async (req) => {
     }
     
     const successCount = emailResults.filter(result => result.success).length;
+    console.log(`[SEND] Completed sending newsletters. Success: ${successCount}/${subscribers.length}`);
     
     return new Response(
       JSON.stringify({
@@ -218,7 +260,7 @@ serve(async (req) => {
     );
     
   } catch (error) {
-    console.error("Error in send-newsletters function:", error);
+    console.error("[SEND] Error in send-newsletters function:", error);
     return new Response(
       JSON.stringify({ error: error.message || "An unexpected error occurred" }),
       {

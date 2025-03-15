@@ -19,21 +19,41 @@ serve(async (req) => {
 
   try {
     // This endpoint allows manual testing of the newsletter system
-    console.log("Running manual test of the newsletter system");
+    console.log("[TEST] Running manual test of the newsletter system");
     
     // Parse request body for specific parameters (e.g., email)
     let targetEmail = null;
+    let runMode = "full"; // Options: "full", "fetch", "summarize", "send"
+    
     try {
       const body = await req.json();
+      console.log("[TEST] Request parameters:", body);
       targetEmail = body.email;
+      if (body.mode && ["full", "fetch", "summarize", "send"].includes(body.mode)) {
+        runMode = body.mode;
+      }
     } catch (e) {
       // If there's no body, or it's not valid JSON, just proceed without filtering
+      console.log("[TEST] No valid JSON in request body, using default parameters");
     }
     
+    console.log(`[TEST] Running test with mode: ${runMode}, target email: ${targetEmail || "all"}`);
+    
     // Initialize Supabase client for any database operations
+    if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+      console.error("[TEST] Missing Supabase credentials");
+      throw new Error("Missing Supabase credentials");
+    }
+    
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
     
+    // Configure which steps to run based on the mode
+    const fetchTweets = runMode === "full" || runMode === "fetch";
+    const summarizeTweets = runMode === "full" || runMode === "summarize";
+    const sendNewsletters = runMode === "full" || runMode === "send";
+    
     // Run the cron-scheduler function to test the entire pipeline
+    console.log("[TEST] Calling cron-scheduler function");
     const cronResponse = await fetch(`${SUPABASE_URL}/functions/v1/cron-scheduler`, {
       method: "POST",
       headers: {
@@ -42,17 +62,21 @@ serve(async (req) => {
       },
       body: JSON.stringify({ 
         test: true,
-        targetEmail 
+        targetEmail,
+        fetchTweets,
+        summarizeTweets,
+        sendNewsletters
       })
     });
     
     if (!cronResponse.ok) {
       const errorText = await cronResponse.text();
-      console.error("Error running newsletter system:", errorText);
+      console.error("[TEST] Error running newsletter system:", errorText);
       throw new Error(`Failed to run newsletter system: ${errorText}`);
     }
     
     const cronData = await cronResponse.json();
+    console.log("[TEST] Cron scheduler result:", cronData);
     
     return new Response(
       JSON.stringify({ 
@@ -67,7 +91,7 @@ serve(async (req) => {
     );
     
   } catch (error) {
-    console.error("Error in test-newsletter-system function:", error);
+    console.error("[TEST] Error in test-newsletter-system function:", error);
     return new Response(
       JSON.stringify({ error: error.message || "An unexpected error occurred" }),
       {

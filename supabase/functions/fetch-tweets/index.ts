@@ -17,22 +17,27 @@ const NITTER_BASE_URL = "https://nitter.net";
 
 async function fetchTweetsFromNitter(twitterHandle: string, maxTweets = 10) {
   try {
-    console.log(`Fetching tweets for ${twitterHandle} from Nitter`);
+    console.log(`[FETCH] Starting to fetch tweets for ${twitterHandle} from Nitter`);
     const response = await fetch(`${NITTER_BASE_URL}/${twitterHandle}`);
     
     if (!response.ok) {
+      console.error(`[FETCH] Failed to fetch tweets: ${response.status} ${response.statusText}`);
       throw new Error(`Failed to fetch tweets: ${response.status} ${response.statusText}`);
     }
     
+    console.log(`[FETCH] Got response for ${twitterHandle}, parsing HTML`);
     const htmlContent = await response.text();
     const parser = new DOMParser();
     const document = parser.parseFromString(htmlContent, "text/html");
     
     if (!document) {
+      console.error(`[FETCH] Failed to parse HTML content for ${twitterHandle}`);
       throw new Error("Failed to parse HTML content");
     }
     
     const tweetElements = document.querySelectorAll(".timeline-item:not(.thread)");
+    console.log(`[FETCH] Found ${tweetElements.length} tweet elements for ${twitterHandle}`);
+    
     const tweets = [];
     
     for (let i = 0; i < Math.min(tweetElements.length, maxTweets); i++) {
@@ -44,6 +49,7 @@ async function fetchTweetsFromNitter(twitterHandle: string, maxTweets = 10) {
       
       // Skip retweets and replies if necessary
       if (isRetweet || isReply) {
+        console.log(`[FETCH] Skipping retweet or reply (${i+1}/${tweetElements.length})`);
         continue;
       }
       
@@ -64,12 +70,17 @@ async function fetchTweetsFromNitter(twitterHandle: string, maxTweets = 10) {
           url: tweetUrl,
           twitter_handle: twitterHandle,
         });
+        
+        console.log(`[FETCH] Processed tweet ${tweets.length}: ID=${tweetId.substring(0, 8)}...`);
+      } else {
+        console.log(`[FETCH] Could not extract tweet data at index ${i}`);
       }
     }
     
+    console.log(`[FETCH] Successfully extracted ${tweets.length} tweets for ${twitterHandle}`);
     return tweets;
   } catch (error) {
-    console.error(`Error fetching tweets for ${twitterHandle}:`, error);
+    console.error(`[FETCH] Error fetching tweets for ${twitterHandle}:`, error);
     throw error;
   }
 }
@@ -81,19 +92,29 @@ serve(async (req) => {
   }
 
   try {
+    console.log("[FETCH] Starting fetch-tweets function");
+    
+    if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+      console.error("[FETCH] Missing Supabase credentials");
+      throw new Error("Missing Supabase credentials");
+    }
+    
+    console.log("[FETCH] Creating Supabase client");
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
     // Get all active subscriptions from the database
+    console.log("[FETCH] Fetching active subscriptions");
     const { data: subscriptions, error: subscriptionError } = await supabase
       .from("newsletter_subscriptions")
       .select("*")
       .eq("active", true);
     
     if (subscriptionError) {
+      console.error("[FETCH] Failed to fetch subscriptions:", subscriptionError);
       throw new Error(`Failed to fetch subscriptions: ${subscriptionError.message}`);
     }
     
-    console.log(`Found ${subscriptions.length} active subscriptions`);
+    console.log(`[FETCH] Found ${subscriptions.length} active subscriptions`);
     
     // Group subscriptions by Twitter handle to avoid duplicate fetches
     const twitterHandleSet = new Set<string>();
@@ -106,18 +127,19 @@ serve(async (req) => {
     });
     
     const twitterHandles = Array.from(twitterHandleSet);
-    console.log(`Unique Twitter handles to fetch: ${twitterHandles.length}`);
+    console.log(`[FETCH] Unique Twitter handles to fetch: ${twitterHandles.join(', ')}`);
     
     const fetchResults = [];
     
     // Fetch tweets for each unique Twitter handle
     for (const handle of twitterHandles) {
       try {
-        console.log(`Processing Twitter handle: ${handle}`);
+        console.log(`[FETCH] Processing Twitter handle: ${handle}`);
         const tweets = await fetchTweetsFromNitter(handle);
         
         if (tweets.length > 0) {
           // Store tweets in the database
+          console.log(`[FETCH] Storing ${tweets.length} tweets for ${handle}`);
           const { data: storedTweets, error: storageError } = await supabase
             .from("tweets")
             .upsert(
@@ -126,14 +148,15 @@ serve(async (req) => {
                 content: tweet.content,
                 created_at: tweet.created_at,
                 url: tweet.url,
-                twitter_handle: tweet.twitter_handle,
+                twitter_handle: handle,
                 fetched_at: new Date().toISOString(),
+                summarized: false, // Make sure to initialize this field
               })),
               { onConflict: "tweet_id" }
             );
             
           if (storageError) {
-            console.error(`Error storing tweets for ${handle}:`, storageError);
+            console.error(`[FETCH] Error storing tweets for ${handle}:`, storageError);
             fetchResults.push({
               handle,
               success: false,
@@ -141,7 +164,7 @@ serve(async (req) => {
               tweets_count: 0
             });
           } else {
-            console.log(`Successfully stored ${tweets.length} tweets for ${handle}`);
+            console.log(`[FETCH] Successfully stored ${tweets.length} tweets for ${handle}`);
             fetchResults.push({
               handle,
               success: true,
@@ -149,7 +172,7 @@ serve(async (req) => {
             });
           }
         } else {
-          console.log(`No tweets found for ${handle}`);
+          console.log(`[FETCH] No tweets found for ${handle}`);
           fetchResults.push({
             handle,
             success: true,
@@ -157,7 +180,7 @@ serve(async (req) => {
           });
         }
       } catch (error) {
-        console.error(`Error processing ${handle}:`, error);
+        console.error(`[FETCH] Error processing ${handle}:`, error);
         fetchResults.push({
           handle,
           success: false,
@@ -167,6 +190,7 @@ serve(async (req) => {
       }
     }
     
+    console.log("[FETCH] Completed fetch-tweets function");
     return new Response(
       JSON.stringify({ 
         success: true, 
@@ -180,7 +204,7 @@ serve(async (req) => {
     );
     
   } catch (error) {
-    console.error("Error in fetch-tweets function:", error);
+    console.error("[FETCH] Error in fetch-tweets function:", error);
     return new Response(
       JSON.stringify({ error: error.message || "An unexpected error occurred" }),
       {
