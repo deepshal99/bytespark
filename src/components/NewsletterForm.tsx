@@ -5,53 +5,24 @@ import { motion } from 'framer-motion';
 import { ArrowRight, Mail, AtSign } from 'lucide-react';
 import { supabase } from "@/integrations/supabase/client";
 
-const NewsletterForm = () => {
-  const [email, setEmail] = useState('');
-  const [twitterSource, setTwitterSource] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
+type NewsletterFormProps = {
+  email: string;
+  setEmail: React.Dispatch<React.SetStateAction<string>>;
+  twitterHandle: string;
+  setTwitterHandle: React.Dispatch<React.SetStateAction<string>>;
+  handleSubmit: (e: React.FormEvent) => Promise<void>;
+  loading: boolean;
+}
+
+const NewsletterForm = ({
+  email,
+  setEmail,
+  twitterHandle: twitterSource,
+  setTwitterHandle: setTwitterSource,
+  handleSubmit,
+  loading: isSubmitting
+}: NewsletterFormProps) => {
   const [isTestingSystem, setIsTestingSystem] = useState(false);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    if (!email || !twitterSource) {
-      toast.error('Please fill all fields');
-      return;
-    }
-    
-    try {
-      setIsSubmitting(true);
-      
-      const { data, error } = await supabase.functions.invoke('newsletter-signup', {
-        body: { email, twitterSource }
-      });
-
-      if (error) {
-        console.error('Subscription error:', error);
-        toast.error(error.message || 'Failed to subscribe. Please try again.');
-        return;
-      }
-      
-      if (data.error) {
-        if (data.error === 'Email already subscribed') {
-          toast.warning('This email is already subscribed to our newsletter.');
-        } else {
-          toast.error(data.error || 'Failed to subscribe. Please try again.');
-        }
-        return;
-      }
-      
-      toast.success('Successfully subscribed to ByteSize!');
-      setEmail('');
-      setTwitterSource('');
-      
-    } catch (error) {
-      console.error('Subscription error:', error);
-      toast.error('Failed to subscribe. Please try again.');
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
   
   const runManualTest = async () => {
     if (!email) {
