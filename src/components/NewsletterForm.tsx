@@ -63,7 +63,7 @@ const NewsletterForm = () => {
       <form onSubmit={handleSubmit} className="space-y-4">
         <motion.div className="relative" variants={itemVariants}>
           <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground" size={20} />
-          <input type="email" placeholder="Your email address" value={email} onChange={e => setEmail(e.target.value)} required className="form-input pl-10 mx-0 px-[30px]" />
+          <input type="email" placeholder="Your email address" value={email} onChange={e => setEmail(e.target.value)} required className="form-input pl-10 mx-0 px-[41px]" />
         </motion.div>
         
         <motion.div className="relative" variants={itemVariants}>
