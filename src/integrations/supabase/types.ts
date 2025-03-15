@@ -9,24 +9,116 @@ export type Json =
 export type Database = {
   public: {
     Tables: {
+      newsletter_deliveries: {
+        Row: {
+          delivered_at: string
+          email: string
+          id: string
+          summary_id: string | null
+          twitter_handle: string
+        }
+        Insert: {
+          delivered_at?: string
+          email: string
+          id?: string
+          summary_id?: string | null
+          twitter_handle: string
+        }
+        Update: {
+          delivered_at?: string
+          email?: string
+          id?: string
+          summary_id?: string | null
+          twitter_handle?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "newsletter_deliveries_summary_id_fkey"
+            columns: ["summary_id"]
+            isOneToOne: false
+            referencedRelation: "tweet_summaries"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       newsletter_subscriptions: {
         Row: {
+          active: boolean
           created_at: string
           email: string
           id: string
           twitter_source: string
         }
         Insert: {
+          active?: boolean
           created_at?: string
           email: string
           id?: string
           twitter_source: string
         }
         Update: {
+          active?: boolean
           created_at?: string
           email?: string
           id?: string
           twitter_source?: string
+        }
+        Relationships: []
+      }
+      tweet_summaries: {
+        Row: {
+          content: string
+          created_at: string
+          id: string
+          summary_date: string
+          twitter_handle: string
+        }
+        Insert: {
+          content: string
+          created_at?: string
+          id?: string
+          summary_date: string
+          twitter_handle: string
+        }
+        Update: {
+          content?: string
+          created_at?: string
+          id?: string
+          summary_date?: string
+          twitter_handle?: string
+        }
+        Relationships: []
+      }
+      tweets: {
+        Row: {
+          content: string
+          created_at: string
+          fetched_at: string
+          id: string
+          summarized: boolean | null
+          tweet_id: string
+          twitter_handle: string
+          url: string
+        }
+        Insert: {
+          content: string
+          created_at: string
+          fetched_at?: string
+          id?: string
+          summarized?: boolean | null
+          tweet_id: string
+          twitter_handle: string
+          url: string
+        }
+        Update: {
+          content?: string
+          created_at?: string
+          fetched_at?: string
+          id?: string
+          summarized?: boolean | null
+          tweet_id?: string
+          twitter_handle?: string
+          url?: string
         }
         Relationships: []
       }

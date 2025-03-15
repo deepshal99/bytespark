@@ -1,55 +1,107 @@
 
-import React from 'react';
-import { ToastContainer } from 'react-toastify';
-import 'react-toastify/dist/ReactToastify.css';
-import { motion } from 'framer-motion';
-
+import React, { useState } from 'react';
+import { supabase } from '../integrations/supabase/client';
+import { toast } from 'react-toastify';
 import Header from '../components/Header';
 import NewsletterForm from '../components/NewsletterForm';
+import Features from '../components/Features';
+import Testimonials from '../components/Testimonials';
+import FAQ from '../components/FAQ';
 import Footer from '../components/Footer';
 
 const Index = () => {
+  const [loading, setLoading] = useState(false);
+  const [email, setEmail] = useState('');
+  const [twitterHandle, setTwitterHandle] = useState('');
+  const [subscribed, setSubscribed] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!email || !twitterHandle) {
+      toast.error('Please enter both email and Twitter handle');
+      return;
+    }
+    
+    setLoading(true);
+    
+    try {
+      // Call the newsletter-signup edge function
+      const { data, error } = await supabase.functions.invoke('newsletter-signup', {
+        body: { 
+          email, 
+          twitterSource: twitterHandle.startsWith('@') ? twitterHandle : `@${twitterHandle}`
+        }
+      });
+      
+      if (error) {
+        throw new Error(error.message);
+      }
+      
+      // Show success message and reset form
+      toast.success('Successfully subscribed to ByteSize newsletter!');
+      setSubscribed(true);
+      setEmail('');
+      setTwitterHandle('');
+    } catch (err) {
+      console.error('Error subscribing to newsletter:', err);
+      toast.error(`Error: ${err instanceof Error ? err.message : 'Failed to subscribe'}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen flex flex-col">
-      <ToastContainer position="top-right" autoClose={5000} hideProgressBar={false} />
-      
       <Header />
       
-      <main className="flex-1">
-        <section className="py-16 md:py-24">
-          <div className="container mx-auto px-4">
-            <div className="max-w-3xl mx-auto text-center">
-              <motion.h1 
-                className="text-4xl md:text-5xl lg:text-6xl font-bold mb-6 bg-gradient-to-r from-bytesize-blue to-bytesize-indigo bg-clip-text text-transparent"
-                initial={{ opacity: 0, y: 30 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.7 }}
-              >
-                Your Twitter Feed, Curated & Summarized
-              </motion.h1>
-              
-              <motion.p 
-                className="text-lg md:text-xl text-muted-foreground mb-10"
-                initial={{ opacity: 0, y: 30 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.7, delay: 0.2 }}
-              >
-                Let our AI extract insights from your favorite Twitter accounts and threads, delivered as a personalized newsletter straight to your inbox.
-              </motion.p>
-              
-              <NewsletterForm />
-              
-              <motion.div 
-                className="mt-8 text-sm text-muted-foreground"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ duration: 0.7, delay: 0.5 }}
-              >
-                <p>🔒 No spam, unsubscribe anytime. Your data is secure.</p>
-              </motion.div>
+      <main className="flex-grow">
+        {/* Hero Section */}
+        <section className="bg-gradient-to-b from-indigo-100 to-white py-20">
+          <div className="container mx-auto px-4 max-w-6xl">
+            <div className="text-center mb-12">
+              <h1 className="text-4xl md:text-6xl font-bold text-gray-900 mb-6">
+                Your Twitter Feed, <br />
+                <span className="text-indigo-600">Curated & Summarized</span>
+              </h1>
+              <p className="text-xl text-gray-600 max-w-3xl mx-auto">
+                Subscribe to receive insights from your favorite Twitter accounts, 
+                summarized daily by AI and delivered straight to your inbox.
+              </p>
             </div>
+            
+            {!subscribed ? (
+              <div className="max-w-md mx-auto">
+                <NewsletterForm 
+                  email={email}
+                  setEmail={setEmail}
+                  twitterHandle={twitterHandle}
+                  setTwitterHandle={setTwitterHandle}
+                  handleSubmit={handleSubmit}
+                  loading={loading}
+                />
+              </div>
+            ) : (
+              <div className="bg-green-50 border border-green-200 rounded-lg p-6 max-w-md mx-auto text-center">
+                <h3 className="text-xl font-semibold text-green-800 mb-2">
+                  🎉 Successfully Subscribed!
+                </h3>
+                <p className="text-green-700">
+                  Thank you for subscribing to ByteSize. Check your inbox for a confirmation email.
+                </p>
+              </div>
+            )}
           </div>
         </section>
+        
+        {/* Features Section */}
+        <Features />
+        
+        {/* Testimonials */}
+        <Testimonials />
+        
+        {/* FAQ Section */}
+        <FAQ />
       </main>
       
       <Footer />
