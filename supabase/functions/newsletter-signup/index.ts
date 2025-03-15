@@ -25,9 +25,13 @@ serve(async (req) => {
     const resend = new Resend(resendApiKey);
 
     // Parse request body
-    const { email, twitterSource } = await req.json();
+    const requestBody = await req.json();
+    console.log("Request body:", requestBody);
+    
+    const { email, twitterSource } = requestBody;
 
     if (!email || !twitterSource) {
+      console.error("Missing required fields:", { email, twitterSource });
       return new Response(
         JSON.stringify({ error: "Email and Twitter source are required" }),
         {

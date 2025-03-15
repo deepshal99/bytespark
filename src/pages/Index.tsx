@@ -26,15 +26,23 @@ const Index = () => {
     setLoading(true);
     
     try {
+      // Format the twitter handle correctly
+      const formattedTwitterHandle = twitterHandle.startsWith('@') 
+        ? twitterHandle 
+        : `@${twitterHandle}`;
+      
+      console.log('Sending to edge function:', { email, twitterSource: formattedTwitterHandle });
+      
       // Call the newsletter-signup edge function
       const { data, error } = await supabase.functions.invoke('newsletter-signup', {
         body: { 
           email, 
-          twitterSource: twitterHandle.startsWith('@') ? twitterHandle : `@${twitterHandle}`
+          twitterSource: formattedTwitterHandle
         }
       });
       
       if (error) {
+        console.error('Edge function error:', error);
         throw new Error(error.message);
       }
       
