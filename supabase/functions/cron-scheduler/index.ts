@@ -18,7 +18,7 @@ serve(async (req) => {
   }
 
   try {
-    console.log("Running daily scheduled tasks for ByteSize newsletter");
+    console.log("Running every-5-minute scheduled tasks for ByteSize newsletter");
     
     // Parse request body for test mode and targetEmail
     let isTest = false;
@@ -33,54 +33,10 @@ serve(async (req) => {
     
     const testMode = isTest ? "?test=true" : "";
     
-    // Step 1: Fetch tweets
-    console.log("Step 1: Fetching tweets...");
-    const fetchResponse = await fetch(`${SUPABASE_URL}/functions/v1/fetch-tweets`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`
-      },
-      body: JSON.stringify({
-        test: isTest,
-        email: targetEmail
-      })
-    });
+    // Skip the fetch-tweets and summarize-tweets steps for the 5-minute testing
+    // and directly send newsletters using existing summaries
     
-    if (!fetchResponse.ok) {
-      const errorText = await fetchResponse.text();
-      console.error("Error fetching tweets:", errorText);
-      throw new Error(`Failed to fetch tweets: ${errorText}`);
-    }
-    
-    const fetchData = await fetchResponse.json();
-    console.log("Fetch tweets result:", fetchData);
-    
-    // Step 2: Summarize tweets
-    console.log("Step 2: Summarizing tweets...");
-    const summarizeResponse = await fetch(`${SUPABASE_URL}/functions/v1/summarize-tweets`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`
-      },
-      body: JSON.stringify({
-        test: isTest,
-        email: targetEmail
-      })
-    });
-    
-    if (!summarizeResponse.ok) {
-      const errorText = await summarizeResponse.text();
-      console.error("Error summarizing tweets:", errorText);
-      throw new Error(`Failed to summarize tweets: ${errorText}`);
-    }
-    
-    const summarizeData = await summarizeResponse.json();
-    console.log("Summarize tweets result:", summarizeData);
-    
-    // Step 3: Send newsletters
-    console.log("Step 3: Sending newsletters...");
+    console.log("Sending newsletters (5-minute test mode)...");
     const newsletterResponse = await fetch(`${SUPABASE_URL}/functions/v1/send-newsletters`, {
       method: "POST",
       headers: {
@@ -89,7 +45,8 @@ serve(async (req) => {
       },
       body: JSON.stringify({
         test: isTest,
-        email: targetEmail
+        email: targetEmail,
+        forceResend: true
       })
     });
     
@@ -105,10 +62,8 @@ serve(async (req) => {
     return new Response(
       JSON.stringify({ 
         success: true, 
-        message: "Daily newsletter tasks completed successfully",
+        message: "5-minute newsletter test completed successfully",
         results: {
-          fetch: fetchData,
-          summarize: summarizeData,
           newsletter: newsletterData
         }
       }),

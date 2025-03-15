@@ -37,6 +37,7 @@ serve(async (req) => {
     
     const isTestRun = requestParams.test === true;
     const targetEmail = requestParams.email;
+    const forceResend = requestParams.forceResend === true;
     
     // Get current date in YYYY-MM-DD format
     const currentDate = new Date().toISOString().split('T')[0];
@@ -83,12 +84,39 @@ serve(async (req) => {
         
         // Get the latest summary for this subscriber's Twitter source
         const twitterHandle = subscriber.twitter_source.replace('@', '').trim();
+
+        // First, check if we've already sent a newsletter for this subscriber today
+        // Skip this check if forceResend is true for our 5-minute testing
+        if (!forceResend) {
+          const { data: recentDeliveries, error: deliveriesError } = await supabase
+            .from("newsletter_deliveries")
+            .select("*")
+            .eq("email", subscriber.email)
+            .eq("twitter_handle", twitterHandle)
+            .gte("delivered_at", new Date(new Date().setHours(0,0,0,0)).toISOString())
+            .order("delivered_at", { ascending: false })
+            .limit(1);
+          
+          if (deliveriesError) {
+            throw new Error(`Failed to check recent deliveries: ${deliveriesError.message}`);
+          }
+          
+          if (recentDeliveries.length > 0) {
+            console.log(`Already sent newsletter to ${subscriber.email} for ${twitterHandle} today, skipping`);
+            emailResults.push({
+              email: subscriber.email,
+              success: false,
+              skipped: true,
+              error: "Newsletter already sent today"
+            });
+            continue;
+          }
+        }
         
         const { data: summaries, error: summariesError } = await supabase
           .from("tweet_summaries")
           .select("*")
           .eq("twitter_handle", twitterHandle)
-          .eq("summary_date", currentDate)
           .order("created_at", { ascending: false })
           .limit(1);
         
@@ -97,7 +125,7 @@ serve(async (req) => {
         }
         
         if (summaries.length === 0) {
-          console.log(`No summary found for ${twitterHandle} on ${currentDate}`);
+          console.log(`No summary found for ${twitterHandle}`);
           emailResults.push({
             email: subscriber.email,
             success: false,
