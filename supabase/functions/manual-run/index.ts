@@ -78,35 +78,49 @@ serve(async (req) => {
     console.log(`[MANUAL] Running manual ${action} action with endpoint ${endpoint}`);
     console.log(`[MANUAL] Request body:`, requestBody);
     
-    const response = await fetch(`${SUPABASE_URL}/functions/v1/${endpoint}`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`
-      },
-      body: JSON.stringify(requestBody)
-    });
-    
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`[MANUAL] Error running ${action}:`, errorText);
-      throw new Error(`Failed to run ${action}: ${errorText}`);
-    }
-    
-    const data = await response.json();
-    console.log(`[MANUAL] ${action} result:`, data);
-    
-    return new Response(
-      JSON.stringify({ 
-        success: true, 
-        message: `Manual ${action} completed successfully`,
-        results: data
-      }),
-      {
-        status: 200,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+    try {
+      const response = await fetch(`${SUPABASE_URL}/functions/v1/${endpoint}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`
+        },
+        body: JSON.stringify(requestBody)
+      });
+      
+      const responseText = await response.text();
+      
+      if (!response.ok) {
+        console.error(`[MANUAL] Error running ${action}:`, responseText);
+        throw new Error(`Failed to run ${action}: ${responseText}`);
       }
-    );
+      
+      // Try to parse as JSON, fall back to text if it fails
+      let data;
+      try {
+        data = JSON.parse(responseText);
+      } catch (e) {
+        console.log("[MANUAL] Response is not JSON, using text");
+        data = { text: responseText };
+      }
+      
+      console.log(`[MANUAL] ${action} result:`, data);
+      
+      return new Response(
+        JSON.stringify({ 
+          success: true, 
+          message: `Manual ${action} completed successfully`,
+          results: data
+        }),
+        {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
+    } catch (fetchError) {
+      console.error(`[MANUAL] Fetch error calling ${endpoint}:`, fetchError);
+      throw new Error(`Error calling ${endpoint}: ${fetchError.message}`);
+    }
     
   } catch (error) {
     console.error("[MANUAL] Error in manual-run function:", error);

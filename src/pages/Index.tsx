@@ -22,14 +22,30 @@ const Index = () => {
     setLoading(true);
     
     try {
-      // Format the twitter handle correctly
-      const formattedTwitterHandle = twitterHandle.startsWith('@') 
-        ? twitterHandle 
-        : `@${twitterHandle}`;
+      // Format the twitter handle correctly (don't add @ if it's already a URL)
+      let formattedTwitterHandle = twitterHandle;
+      if (!twitterHandle.includes('twitter.com') && 
+          !twitterHandle.includes('x.com') && 
+          !twitterHandle.startsWith('@')) {
+        formattedTwitterHandle = `@${twitterHandle}`;
+      }
       
       console.log('Sending to edge function:', { email, twitterSource: formattedTwitterHandle });
       
-      // Call the newsletter-signup edge function
+      // Call manual-run with the fetch action to test if the handle works
+      const testFetch = await supabase.functions.invoke('manual-run', {
+        body: { 
+          action: 'fetch',
+          email
+        }
+      });
+      
+      if (testFetch.error) {
+        console.error('Test fetch error:', testFetch.error);
+        throw new Error('Could not verify Twitter handle. Please try again.');
+      }
+      
+      // Now call the newsletter-signup edge function
       const { data, error } = await supabase.functions.invoke('newsletter-signup', {
         body: { 
           email, 
@@ -103,4 +119,3 @@ const Index = () => {
 };
 
 export default Index;
-

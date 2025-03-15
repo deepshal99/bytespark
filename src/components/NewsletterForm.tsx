@@ -106,7 +106,7 @@ const NewsletterForm = ({
             value={email} 
             onChange={e => setEmail(e.target.value)} 
             required 
-            className="form-input pl-10 mx-0 px-[41px]" 
+            className="w-full p-3 pl-10 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500" 
           />
         </motion.div>
         
@@ -114,17 +114,17 @@ const NewsletterForm = ({
           <AtSign className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground" size={20} />
           <input 
             type="text" 
-            placeholder="Twitter profile or thread link" 
+            placeholder="Twitter handle (e.g. @elonmusk)" 
             value={twitterSource} 
             onChange={e => setTwitterSource(e.target.value)} 
             required 
-            className="form-input pl-10 px-[41px]" 
+            className="w-full p-3 pl-10 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500" 
           />
         </motion.div>
         
         <motion.button 
           type="submit" 
-          className="btn-primary w-full flex items-center justify-center group" 
+          className="w-full bg-indigo-600 text-white p-3 rounded-md hover:bg-indigo-700 transition-colors flex items-center justify-center group" 
           disabled={isSubmitting}
           variants={itemVariants}
           whileHover={{ scale: 1.02 }}
@@ -140,38 +140,36 @@ const NewsletterForm = ({
           )}
         </motion.button>
         
-        {process.env.NODE_ENV === 'development' && (
-          <motion.div className="mt-4 space-y-2" variants={itemVariants}>
-            <div className="flex gap-2 mb-2">
-              <select 
-                value={testMode}
-                onChange={(e) => setTestMode(e.target.value as any)}
-                className="text-sm bg-white border border-gray-300 rounded px-2 flex-1"
-              >
-                <option value="full">Full Pipeline</option>
-                <option value="fetch">Fetch Tweets Only</option>
-                <option value="summarize">Summarize Only</option>
-                <option value="send">Send Newsletter Only</option>
-              </select>
-              
-              <button
-                type="button"
-                onClick={runManualTest}
-                className="text-sm bg-blue-100 hover:bg-blue-200 text-blue-700 px-3 py-1 rounded flex items-center justify-center flex-1"
-                disabled={isTestingSystem}
-              >
-                {isTestingSystem ? (
-                  <div className="h-4 w-4 rounded-full border-2 border-t-transparent border-blue-500 animate-spin mr-2"></div>
-                ) : <PlayCircle size={16} className="mr-1" />}
-                {isTestingSystem ? 'Running...' : 'Test Newsletter'}
-              </button>
-            </div>
+        <motion.div className="mt-4 space-y-2" variants={itemVariants}>
+          <div className="flex gap-2 mb-2">
+            <select 
+              value={testMode}
+              onChange={(e) => setTestMode(e.target.value as any)}
+              className="text-sm bg-white border border-gray-300 rounded px-2 flex-1"
+            >
+              <option value="full">Full Pipeline</option>
+              <option value="fetch">Fetch Tweets Only</option>
+              <option value="summarize">Summarize Only</option>
+              <option value="send">Send Newsletter Only</option>
+            </select>
             
-            <p className="text-xs text-gray-500 italic">
-              Dev mode: This will test the selected part of the newsletter pipeline.
-            </p>
-          </motion.div>
-        )}
+            <button
+              type="button"
+              onClick={runManualTest}
+              className="text-sm bg-blue-100 hover:bg-blue-200 text-blue-700 px-3 py-1 rounded flex items-center justify-center flex-1"
+              disabled={isTestingSystem}
+            >
+              {isTestingSystem ? (
+                <div className="h-4 w-4 rounded-full border-2 border-t-transparent border-blue-500 animate-spin mr-2"></div>
+              ) : <PlayCircle size={16} className="mr-1" />}
+              {isTestingSystem ? 'Running...' : 'Test Newsletter'}
+            </button>
+          </div>
+          
+          <p className="text-xs text-gray-500 italic">
+            This will test the selected part of the newsletter pipeline.
+          </p>
+        </motion.div>
       </form>
     </motion.div>
   );

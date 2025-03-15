@@ -12,31 +12,93 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || "";
 const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") || "";
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
 
-// Base URL for Nitter instance
-const NITTER_BASE_URL = "https://nitter.net";
+// Base URL for Nitter instance - try alternative instances if the primary one fails
+const NITTER_INSTANCES = [
+  "https://nitter.net",
+  "https://nitter.lacontrevoie.fr",
+  "https://nitter.1d4.us",
+  "https://nitter.kavin.rocks",
+  "https://nitter.unixfox.eu"
+];
 
 async function fetchTweetsFromNitter(twitterHandle: string, maxTweets = 10) {
   try {
-    console.log(`[FETCH] Starting to fetch tweets for ${twitterHandle} from Nitter`);
-    const response = await fetch(`${NITTER_BASE_URL}/${twitterHandle}`);
+    console.log(`[FETCH] Starting to fetch tweets for ${twitterHandle}`);
     
-    if (!response.ok) {
-      console.error(`[FETCH] Failed to fetch tweets: ${response.status} ${response.statusText}`);
-      throw new Error(`Failed to fetch tweets: ${response.status} ${response.statusText}`);
+    // Clean up the Twitter handle - remove URL components if present
+    let cleanHandle = twitterHandle;
+    if (cleanHandle.startsWith("@")) {
+      cleanHandle = cleanHandle.substring(1);
+    }
+    // If it's a URL, extract just the username
+    if (cleanHandle.includes("twitter.com/") || cleanHandle.includes("x.com/")) {
+      const matches = cleanHandle.match(/(?:twitter\.com|x\.com)\/([^/?\s]+)/);
+      if (matches && matches[1]) {
+        cleanHandle = matches[1];
+      }
+    } else if (cleanHandle.includes("/")) {
+      // If it has slashes but isn't clearly a URL, just take the first part
+      cleanHandle = cleanHandle.split("/")[0];
     }
     
-    console.log(`[FETCH] Got response for ${twitterHandle}, parsing HTML`);
-    const htmlContent = await response.text();
-    const parser = new DOMParser();
-    const document = parser.parseFromString(htmlContent, "text/html");
+    console.log(`[FETCH] Cleaned Twitter handle: ${cleanHandle}`);
     
-    if (!document) {
-      console.error(`[FETCH] Failed to parse HTML content for ${twitterHandle}`);
-      throw new Error("Failed to parse HTML content");
+    // Try different Nitter instances until one works
+    let success = false;
+    let document = null;
+    let usedInstance = "";
+    
+    for (const instance of NITTER_INSTANCES) {
+      try {
+        console.log(`[FETCH] Trying Nitter instance: ${instance}`);
+        const url = `${instance}/${cleanHandle}`;
+        console.log(`[FETCH] Fetching from URL: ${url}`);
+        
+        const response = await fetch(url);
+        
+        if (!response.ok) {
+          console.error(`[FETCH] Failed to fetch from ${instance}: ${response.status} ${response.statusText}`);
+          continue;
+        }
+        
+        console.log(`[FETCH] Got response from ${instance}, parsing HTML`);
+        const htmlContent = await response.text();
+        
+        if (htmlContent.includes("user not found") || htmlContent.includes("User not found")) {
+          console.error(`[FETCH] Twitter user not found on ${instance}: ${cleanHandle}`);
+          continue;
+        }
+        
+        const parser = new DOMParser();
+        document = parser.parseFromString(htmlContent, "text/html");
+        
+        if (!document) {
+          console.error(`[FETCH] Failed to parse HTML content from ${instance}`);
+          continue;
+        }
+        
+        success = true;
+        usedInstance = instance;
+        break;
+        
+      } catch (instanceError) {
+        console.error(`[FETCH] Error with Nitter instance ${instance}:`, instanceError);
+        // Continue to next instance
+      }
     }
+    
+    if (!success || !document) {
+      throw new Error(`Failed to fetch tweets from any Nitter instance for handle: ${cleanHandle}`);
+    }
+    
+    console.log(`[FETCH] Successfully connected to Nitter instance: ${usedInstance}`);
     
     const tweetElements = document.querySelectorAll(".timeline-item:not(.thread)");
-    console.log(`[FETCH] Found ${tweetElements.length} tweet elements for ${twitterHandle}`);
+    console.log(`[FETCH] Found ${tweetElements.length} tweet elements for ${cleanHandle}`);
+    
+    if (tweetElements.length === 0) {
+      console.log(`[FETCH] Timeline DOM structure:`, document.querySelector(".timeline")?.innerHTML || "No timeline found");
+    }
     
     const tweets = [];
     
@@ -68,16 +130,19 @@ async function fetchTweetsFromNitter(twitterHandle: string, maxTweets = 10) {
           content,
           created_at: new Date(dateStr).toISOString(),
           url: tweetUrl,
-          twitter_handle: twitterHandle,
+          twitter_handle: cleanHandle,
         });
         
         console.log(`[FETCH] Processed tweet ${tweets.length}: ID=${tweetId.substring(0, 8)}...`);
       } else {
         console.log(`[FETCH] Could not extract tweet data at index ${i}`);
+        if (!contentElement) console.log(`[FETCH] Missing content element`);
+        if (!dateElement) console.log(`[FETCH] Missing date element`);
+        if (!linkElement) console.log(`[FETCH] Missing link element`);
       }
     }
     
-    console.log(`[FETCH] Successfully extracted ${tweets.length} tweets for ${twitterHandle}`);
+    console.log(`[FETCH] Successfully extracted ${tweets.length} tweets for ${cleanHandle}`);
     return tweets;
   } catch (error) {
     console.error(`[FETCH] Error fetching tweets for ${twitterHandle}:`, error);
@@ -116,13 +181,34 @@ serve(async (req) => {
     
     console.log(`[FETCH] Found ${subscriptions.length} active subscriptions`);
     
+    // Parse request body for test mode and targetEmail
+    let isTest = false;
+    let targetEmail = null;
+    
+    try {
+      const body = await req.json();
+      console.log("[FETCH] Request body:", body);
+      isTest = body.test === true;
+      targetEmail = body.targetEmail || body.email || null;
+    } catch (e) {
+      // If there's no body, or it's not valid JSON, just proceed normally
+      console.log("[FETCH] No valid JSON in request body, using default settings");
+    }
+    
+    // Filter subscriptions based on targetEmail if provided
+    let filteredSubscriptions = subscriptions;
+    if (targetEmail) {
+      console.log(`[FETCH] Filtering subscriptions for email: ${targetEmail}`);
+      filteredSubscriptions = subscriptions.filter(sub => sub.email === targetEmail);
+      console.log(`[FETCH] Filtered to ${filteredSubscriptions.length} subscriptions`);
+    }
+    
     // Group subscriptions by Twitter handle to avoid duplicate fetches
     const twitterHandleSet = new Set<string>();
-    subscriptions.forEach(sub => {
+    filteredSubscriptions.forEach(sub => {
       if (sub.twitter_source) {
-        // Remove @ symbol if present and trim
-        const handle = sub.twitter_source.replace('@', '').trim();
-        twitterHandleSet.add(handle);
+        // Add the twitter handle as is
+        twitterHandleSet.add(sub.twitter_source.trim());
       }
     });
     
