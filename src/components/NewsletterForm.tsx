@@ -9,6 +9,7 @@ const NewsletterForm = () => {
   const [email, setEmail] = useState('');
   const [twitterSource, setTwitterSource] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isTestingSystem, setIsTestingSystem] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -49,6 +50,37 @@ const NewsletterForm = () => {
       toast.error('Failed to subscribe. Please try again.');
     } finally {
       setIsSubmitting(false);
+    }
+  };
+  
+  const runManualTest = async () => {
+    if (!email) {
+      toast.error('Please enter your email to run a test');
+      return;
+    }
+    
+    try {
+      setIsTestingSystem(true);
+      toast.info('Starting system test. This may take a few minutes...');
+      
+      const { data, error } = await supabase.functions.invoke('manual-run', {
+        body: { action: 'test', email }
+      });
+      
+      if (error) {
+        console.error('Test system error:', error);
+        toast.error(error.message || 'Failed to run test. Please try again.');
+        return;
+      }
+      
+      console.log('Test result:', data);
+      toast.success('Test completed! Check your email for results.');
+      
+    } catch (error) {
+      console.error('Test system error:', error);
+      toast.error('Failed to run test. Please try again.');
+    } finally {
+      setIsTestingSystem(false);
     }
   };
   
@@ -129,6 +161,22 @@ const NewsletterForm = () => {
             </>
           )}
         </motion.button>
+        
+        {process.env.NODE_ENV === 'development' && (
+          <motion.div className="mt-4" variants={itemVariants}>
+            <button
+              type="button"
+              onClick={runManualTest}
+              className="text-sm text-blue-500 hover:text-blue-700 flex items-center justify-center w-full"
+              disabled={isTestingSystem}
+            >
+              {isTestingSystem ? (
+                <div className="h-4 w-4 rounded-full border-2 border-t-transparent border-blue-500 animate-spin mr-2"></div>
+              ) : null}
+              {isTestingSystem ? 'Running test...' : '[DEV] Test newsletter system'}
+            </button>
+          </motion.div>
+        )}
       </form>
     </motion.div>
   );
